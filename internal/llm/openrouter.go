@@ -1,6 +1,9 @@
-// Package llm is the OpenRouter (OpenAI-compatible) client. Each persona names
-// its own model, so the model *is* the personality. Mock mode returns canned
-// actions so the whole orchestration loop runs offline without spending.
+// Package llm is a multi-provider, OpenAI-compatible chat client. Each persona
+// names its brain as "provider:model" (e.g. "deepseek:deepseek-v4-flash",
+// "xiaomi:mimo-v2.5-pro-ultraspeed", "openrouter:openai/gpt-oss-120b:free"). A
+// bare model with no known provider prefix defaults to OpenRouter. The model IS
+// the personality — so casting across providers is how behavior diverges.
+// Mock mode returns canned actions so the whole loop runs offline with no spend.
 package llm
 
 import (
@@ -12,10 +15,34 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
-const endpoint = "https://openrouter.ai/api/v1/chat/completions"
+// provider is one OpenAI-compatible endpoint.
+type provider struct {
+	name    string
+	baseURL string
+	keyEnv  string
+}
+
+// providers mirrors the wiring already proven in the pi harness (models.json).
+var providers = map[string]provider{
+	"openrouter": {"openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"},
+	"deepseek":   {"deepseek", "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"},
+	"xiaomi":     {"xiaomi", "https://api.xiaomimimo.com/v1", "XIAOMI_MIMO_API_KEY"},
+}
+
+// route splits "provider:model" on the FIRST colon (so model ids keeping their
+// own ":free" suffix survive). Unknown/absent prefix → OpenRouter.
+func route(model string) (provider, string) {
+	if i := strings.Index(model, ":"); i > 0 {
+		if p, ok := providers[model[:i]]; ok {
+			return p, model[i+1:]
+		}
+	}
+	return providers["openrouter"], model
+}
 
 // Msg is one chat message.
 type Msg struct {
@@ -23,21 +50,16 @@ type Msg struct {
 	Content string `json:"content"`
 }
 
-// Client talks to OpenRouter. The API key is read from OPENROUTER_API_KEY at
-// runtime and never stored on disk or in the repo.
+// Client dispatches to whichever provider a model names. Keys are read from the
+// environment at call time and never stored on disk or in the repo.
 type Client struct {
-	key  string
 	http *http.Client
 	mock bool
 }
 
-// New builds a client. Mock mode needs no key.
+// New builds a client. Mock mode needs no keys.
 func New(mock bool) *Client {
-	return &Client{
-		key:  os.Getenv("OPENROUTER_API_KEY"),
-		http: &http.Client{Timeout: 90 * time.Second},
-		mock: mock,
-	}
+	return &Client{http: &http.Client{Timeout: 180 * time.Second}, mock: mock}
 }
 
 // Mock reports whether the client is running canned/offline.
@@ -47,6 +69,7 @@ type chatReq struct {
 	Model       string  `json:"model"`
 	Messages    []Msg   `json:"messages"`
 	Temperature float64 `json:"temperature"`
+	MaxTokens   int     `json:"max_tokens"`
 }
 
 type chatResp struct {
@@ -58,23 +81,27 @@ type chatResp struct {
 	} `json:"error"`
 }
 
-// Chat sends messages to a model and returns the assistant text.
+// Chat sends messages to a model (routed to its provider) and returns the text.
 func (c *Client) Chat(ctx context.Context, model string, msgs []Msg) (string, error) {
 	if c.mock {
 		return mockAction(model, msgs), nil
 	}
-	if c.key == "" {
-		return "", fmt.Errorf("OPENROUTER_API_KEY not set (or run with --mock)")
+	p, id := route(model)
+	key := os.Getenv(p.keyEnv)
+	if key == "" {
+		return "", fmt.Errorf("%s not set for provider %q (or run with --mock)", p.keyEnv, p.name)
 	}
-	body, _ := json.Marshal(chatReq{Model: model, Messages: msgs, Temperature: 0.9})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	body, _ := json.Marshal(chatReq{Model: id, Messages: msgs, Temperature: 0.9, MaxTokens: 1500})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.key)
-	req.Header.Set("HTTP-Referer", "https://github.com/jasondostal/carrier")
-	req.Header.Set("X-Title", "carrier")
+	req.Header.Set("Authorization", "Bearer "+key)
+	if p.name == "openrouter" {
+		req.Header.Set("HTTP-Referer", "https://github.com/jasondostal/carrier")
+		req.Header.Set("X-Title", "carrier")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
@@ -82,24 +109,31 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Msg) (string, er
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("openrouter %d: %s", resp.StatusCode, string(raw))
+		return "", fmt.Errorf("%s %d: %s", p.name, resp.StatusCode, snippet(raw))
 	}
 	var cr chatResp
 	if err := json.Unmarshal(raw, &cr); err != nil {
 		return "", err
 	}
 	if cr.Error != nil {
-		return "", fmt.Errorf("openrouter: %s", cr.Error.Message)
+		return "", fmt.Errorf("%s: %s", p.name, cr.Error.Message)
 	}
 	if len(cr.Choices) == 0 {
-		return "", fmt.Errorf("openrouter: empty response")
+		return "", fmt.Errorf("%s: empty response", p.name)
 	}
 	return cr.Choices[0].Message.Content, nil
 }
 
+func snippet(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if len(s) > 240 {
+		s = s[:240] + "…"
+	}
+	return s
+}
+
 // mockAction fabricates a valid Action JSON so the loop can be exercised
-// offline. It varies by a cheap hash of model + last message, so different
-// personas diverge and a given seed replays identically.
+// offline, varying by a cheap hash so personas diverge and seeds replay.
 func mockAction(model string, msgs []Msg) string {
 	h := fnv.New32a()
 	h.Write([]byte(model))

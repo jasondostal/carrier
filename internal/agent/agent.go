@@ -130,6 +130,7 @@ func buildPerception(p *domain.Persona, w *domain.World, store *memory.Store, on
 }
 
 func parse(s string) domain.Action {
+	s = stripThinking(s)
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "```json")
 	s = strings.TrimPrefix(s, "```")
@@ -142,6 +143,24 @@ func parse(s string) domain.Action {
 		return domain.Action{Kind: domain.ActIdle}
 	}
 	return a
+}
+
+// stripThinking removes reasoning blocks some models inline in their content
+// (<think>…</think>, <reasoning>…</reasoning>) so the JSON extraction that
+// follows doesn't grab a brace from inside the model's scratch-work.
+func stripThinking(s string) string {
+	for _, tag := range [][2]string{{"<think>", "</think>"}, {"<reasoning>", "</reasoning>"}} {
+		for {
+			a := strings.Index(s, tag[0])
+			b := strings.Index(s, tag[1])
+			if a >= 0 && b > a {
+				s = s[:a] + s[b+len(tag[1]):]
+				continue
+			}
+			break
+		}
+	}
+	return s
 }
 
 func oneLine(s string) string {
