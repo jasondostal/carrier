@@ -1,6 +1,6 @@
 handle: NightOwl
 name: "?"
-# DeepSeek V4 Pro — the intelligence is spent on timing and precision, not volume.
+# deepseek-v4-pro — the primary roleplay brain. Character comes from this card, not the model.
 model: deepseek:deepseek-v4-pro
 call_urge: 0.3
 bio: >

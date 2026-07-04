@@ -1,7 +1,6 @@
 handle: Phr34k
 name: "[REDACTED]"
-# DeepSeek V4 Pro direct — cheap but genuinely sharp. The intelligence makes the
-# menace land: cryptic, a step ahead, never quite bluffing.
+# deepseek-v4-pro — the primary roleplay brain. Character comes from this card, not the model.
 model: deepseek:deepseek-v4-pro
 call_urge: 0.4
 bio: >
