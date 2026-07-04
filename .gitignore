@@ -1,0 +1,12 @@
+# secrets never live in the repo — the OpenRouter key stays in your shell env
+.env
+.env.*
+*.local.yaml
+
+# build output
+/bin/
+/dist/
+/colony
+
+# os
+.DS_Store
