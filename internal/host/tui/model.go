@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -92,11 +93,15 @@ const sidebarWidth = 30 // total columns reserved for the status sidebar
 // ── model ───────────────────────────────────────────────────────────────────
 
 type model struct {
-	run func() // the simulation entry point, kicked from Init
+	run    func()       // the simulation entry point, kicked from Init
+	inject func(string) // the sysop "stir": drop a SYSOP broadcast into the live board
 
 	ready         bool
 	width, height int
 	vp            viewport.Model
+
+	input     textinput.Model // sysop stir prompt
+	inputMode bool
 
 	entries []feedEntry // the running event log, re-rendered on resize
 
@@ -109,8 +114,12 @@ type model struct {
 	mail     int
 }
 
-func newModel(run func()) model {
-	return model{run: run, online: map[int]nodeStat{}}
+func newModel(run func(), inject func(string)) model {
+	ti := textinput.New()
+	ti.Prompt = "SYSOP> "
+	ti.CharLimit = 240
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(colDragon).Bold(true)
+	return model{run: run, inject: inject, input: ti, online: map[int]nodeStat{}}
 }
 
 // Init kicks the simulation *after* the program is running so no early event is
@@ -127,9 +136,35 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.inputMode {
+			// While composing a sysop broadcast, keys feed the prompt.
+			switch msg.String() {
+			case "enter":
+				if m.inject != nil {
+					m.inject(m.input.Value())
+				}
+				m.input.Reset()
+				m.input.Blur()
+				m.inputMode = false
+				return m, nil
+			case "esc":
+				m.input.Reset()
+				m.input.Blur()
+				m.inputMode = false
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "s":
+			// Enter "stir" mode: type a message the whole cast will react to.
+			m.inputMode = true
+			m.input.Focus()
+			return m, textinput.Blink
 		}
 
 	case tea.WindowSizeMsg:
@@ -259,11 +294,17 @@ func (m model) header() string {
 }
 
 func (m model) footer() string {
+	if m.inputMode {
+		return lipgloss.NewStyle().
+			Width(m.width).
+			Padding(0, 1).
+			Render(m.input.View() + lipgloss.NewStyle().Foreground(colDim).Render("   (enter to send · esc to cancel)"))
+	}
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Foreground(colDim).
 		Padding(0, 1).
-		Render("↑/↓ scroll · q quit")
+		Render("↑/↓ scroll · s stir (sysop broadcast) · q quit")
 }
 
 func (m model) sidebar(height int) string {

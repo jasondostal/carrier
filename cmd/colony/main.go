@@ -64,7 +64,7 @@ func main() {
 		// The TUI owns the main loop: the orchestrator runs in a goroutine that
 		// the model's Init kicks once the program is live (so no early CONNECT is
 		// dropped), while Run blocks the main thread until the sysop quits.
-		h := tui.New(func() { o.Run(context.Background(), *ticks) })
+		h := tui.New(func() { o.Run(context.Background(), *ticks) }, o.InjectSysop)
 		o.Host = h
 		defer h.Close()
 		if err := h.Run(); err != nil {

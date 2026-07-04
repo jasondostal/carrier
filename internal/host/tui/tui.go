@@ -20,11 +20,12 @@ type Host struct {
 }
 
 // New builds a TUI host. run is the simulation's entry point (the orchestrator's
-// Run, already closed over its context and tick count). It is kicked from the
-// model's Init once the program is live — that ordering is what keeps the very
-// first CONNECT/Post events from being dropped before the loop can receive them.
-func New(run func()) *Host {
-	m := newModel(run)
+// Run, already closed over its context and tick count); it is kicked from the
+// model's Init once the program is live — that ordering keeps the very first
+// CONNECT/Post events from being dropped. inject is the sysop "stir" hook
+// (orchestrator.InjectSysop): pressing `s` composes a broadcast and injects it.
+func New(run func(), inject func(string)) *Host {
+	m := newModel(run, inject)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	return &Host{prog: p}
 }
