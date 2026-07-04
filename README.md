@@ -105,6 +105,17 @@ Add one by dropping a new folder in — no code changes.
 - [ ] Menu/template layer + user records + file areas + ratios (see the TriBBS soul spec)
 - [ ] Checkpoints / rewind (the recovery-point idea)
 - [ ] Interop finish lines: DOOR32.SYS drop-file seam, real DOS doors via v86, QWK/FidoNet
+- [ ] **Fine-tuned "BBS caller" model** — distill a small open model (Qwen2.5-3B/7B
+      or Llama-3.2-3B, LoRA) into a purpose-built BBS-user action-taker, then swap it
+      in for the expensive per-caller LLMs. The closed loop that makes it work: carrier's
+      strong teacher LLMs drive **TresBBS** (`~/working/tresbbs`, telnet) → log
+      `(screen text, persona, goal) → next command` trajectories → we own the env so the
+      data is unlimited → LoRA-tune (locally on the M5 via MLX is the flex) → publish the
+      **model + dataset** to HuggingFace → optionally serve on Azure (ML endpoint or
+      Container Apps + vLLM). Eval = task-success-rate *inside TresBBS* (logged in? posted?
+      played the door?). MVP first step = the data-gen harness (carrier↔TresBBS logging),
+      which also just makes carrier drive a real board. The flex is the novel domain +
+      closed-loop env + published dataset, not model size.
 
 ## License
 
