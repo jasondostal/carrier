@@ -26,6 +26,7 @@ func main() {
 	mock := flag.Bool("mock", false, "run offline with canned actions (no OpenRouter spend)")
 	useTUI := flag.Bool("tui", false, "render in the full-screen Bubble Tea sysop console")
 	persist := flag.Bool("persist", false, "write new memories back to disk (living world across runs); default is ephemeral")
+	sysopSay := flag.String("sysop-say", "", "inject a one-time SYSOP broadcast at startup that the cast will react to (demo of sysop 'stir')")
 	flag.Parse()
 
 	personas, bank, err := memory.Load(*personasDir, *persist)
@@ -44,6 +45,9 @@ func main() {
 	o := &orchestrator.Orchestrator{
 		World: w, LLM: c, Bank: bank, Personas: personas,
 		RNG: rand.New(rand.NewSource(*seed)), TicksPerDay: *perDay,
+	}
+	if *sysopSay != "" {
+		o.InjectSysop(*sysopSay)
 	}
 
 	mode := "LIVE (OpenRouter)"

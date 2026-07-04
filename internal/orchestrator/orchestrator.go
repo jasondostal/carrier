@@ -8,6 +8,7 @@ import (
 	"context"
 	"math/rand"
 	"strings"
+	"sync"
 
 	"github.com/jasondostal/carrier/internal/agent"
 	"github.com/jasondostal/carrier/internal/domain"
@@ -28,12 +29,45 @@ type Orchestrator struct {
 	TicksPerDay int
 
 	pendingNews []string
+
+	mu           sync.Mutex // guards pendingSysop (written from the UI goroutine)
+	pendingSysop []string
+}
+
+// InjectSysop queues a SYSOP broadcast to appear on the board at the next tick.
+// This is the sysop "stir": it's safe to call from another goroutine (e.g. the
+// TUI), so the human can drop a message into the live board and watch the cast
+// react to the operator.
+func (o *Orchestrator) InjectSysop(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	o.mu.Lock()
+	o.pendingSysop = append(o.pendingSysop, text)
+	o.mu.Unlock()
+}
+
+// drainSysop posts any queued SYSOP broadcasts to the board so callers perceive
+// (and react to) the operator on their turn this tick.
+func (o *Orchestrator) drainSysop() {
+	o.mu.Lock()
+	pending := o.pendingSysop
+	o.pendingSysop = nil
+	o.mu.Unlock()
+	for _, text := range pending {
+		post := o.World.AddPost(&domain.Post{
+			Board: "General", Tick: o.World.Tick, Author: "SYSOP", Subject: "** SYSOP **", Body: text,
+		})
+		o.Host.Post(post)
+	}
 }
 
 // Run advances the sim by the given number of ticks.
 func (o *Orchestrator) Run(ctx context.Context, ticks int) {
 	for t := 0; t < ticks; t++ {
 		o.World.Tick++
+		o.drainSysop()
 		o.admit()
 		o.turns(ctx)
 		o.dayBoundary()

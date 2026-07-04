@@ -127,6 +127,13 @@ func buildPerception(p *domain.Persona, w *domain.World, store *memory.Store, on
 		b.WriteString("\nThe boards are quiet since you last looked.\n")
 	}
 
+	for _, ps := range posts {
+		if ps.Author == "SYSOP" {
+			b.WriteString("\n⚡ The SYSOP — the operator who runs this whole board — is watching and just posted. That carries weight here; react to it.\n")
+			break
+		}
+	}
+
 	if mail := w.UnreadMail(p.Handle, p.LastSeen); len(mail) > 0 {
 		b.WriteString("\nPrivate mail for you:\n")
 		for _, m := range mail {
