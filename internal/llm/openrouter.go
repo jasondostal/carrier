@@ -91,7 +91,7 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Msg) (string, er
 	if key == "" {
 		return "", fmt.Errorf("%s not set for provider %q (or run with --mock)", p.keyEnv, p.name)
 	}
-	body, _ := json.Marshal(chatReq{Model: id, Messages: msgs, Temperature: 0.9, MaxTokens: 1500})
+	body, _ := json.Marshal(chatReq{Model: id, Messages: msgs, Temperature: 0.8, MaxTokens: 1500})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err

@@ -18,9 +18,11 @@ type Persona struct {
 	CallUrge float64  // 0..1 baseline propensity to dial in on a given tick
 
 	// runtime state (not persisted)
-	Online   bool
-	Node     int // node number while online; 0 = offline
-	LastSeen int // last tick this persona perceived the boards
+	Online       bool
+	Node         int // node number while online; 0 = offline
+	LastSeen     int // last tick this persona perceived the boards
+	SessionStart int // tick this persona dialed in
+	SessionLen   int // ticks they'll stay before the line cycles them off
 }
 
 // Post is a message-base post. ReplyTo == 0 means a new thread.

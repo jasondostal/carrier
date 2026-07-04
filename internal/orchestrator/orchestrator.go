@@ -86,6 +86,7 @@ func (o *Orchestrator) admit() {
 		}
 		p := cand[o.RNG.Intn(len(cand))]
 		p.Online, p.Node = true, n
+		p.SessionStart, p.SessionLen = o.World.Tick, 2+o.RNG.Intn(4) // stay 2–5 ticks
 		o.Host.Connect(p)
 	}
 }
@@ -95,6 +96,13 @@ func (o *Orchestrator) turns(ctx context.Context) {
 	on := o.online()
 	o.RNG.Shuffle(len(on), func(i, j int) { on[i], on[j] = on[j], on[i] })
 	for _, p := range on {
+		// line-cycling: once a caller's session budget is up, the line drops so
+		// someone else can dial in. Keeps the whole cast rotating through.
+		if o.World.Tick-p.SessionStart >= p.SessionLen {
+			o.Host.Disconnect(p)
+			p.Online, p.Node = false, 0
+			continue
+		}
 		store := o.Bank[p.ID]
 		act, err := agent.Decide(ctx, o.LLM, p, o.World, store, on)
 		if err != nil {
