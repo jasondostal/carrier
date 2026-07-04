@@ -2,6 +2,13 @@
 // (persona.yaml), an append-only episodic stream (memory.jsonl), and a
 // relationships file (relationships.yaml). No database on purpose — the colony's
 // minds are openable, greppable, diffable, and part of the demo.
+//
+// Memory always lives in-process for the duration of a run, so callers recall
+// what happened THIS session (the flame war two ticks ago). Whether it survives
+// the run is the caller's choice: with persistence off (the default) the seed
+// files on disk are never touched — runs stay ephemeral and the repo stays
+// clean; with persistence on, new memories are appended to memory.jsonl and the
+// board becomes a living world that accumulates grudges and romances over time.
 package memory
 
 import (
@@ -26,8 +33,13 @@ type personaFile struct {
 	CallUrge float64  `yaml:"call_urge"`
 }
 
-// Store manages one persona's on-disk mind.
-type Store struct{ dir string }
+// Store manages one persona's mind: the seed stream loaded from disk plus any
+// memories formed during this run, held in memory and optionally written back.
+type Store struct {
+	dir     string
+	persist bool
+	lines   []string // seed + this-run memories, oldest first
+}
 
 // Bank maps persona id -> Store.
 type Bank map[string]*Store
@@ -39,8 +51,9 @@ type entry struct {
 
 // Load reads every personas/<id>/persona.yaml under root and returns the
 // personas plus a memory Bank keyed by id. A directory without a card is
-// skipped rather than fatal.
-func Load(root string) ([]*domain.Persona, Bank, error) {
+// skipped rather than fatal. persist controls whether memories formed this run
+// are written back to disk (living world) or discarded on exit (ephemeral).
+func Load(root string, persist bool) ([]*domain.Persona, Bank, error) {
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		return nil, nil, err
@@ -65,20 +78,21 @@ func Load(root string) ([]*domain.Persona, Bank, error) {
 			ID: id, Handle: pf.Handle, Name: pf.Name, Model: pf.Model,
 			Bio: pf.Bio, Style: pf.Style, Goals: pf.Goals, CallUrge: pf.CallUrge,
 		})
-		bank[id] = &Store{dir: dir}
+		s := &Store{dir: dir, persist: persist}
+		s.load()
+		bank[id] = s
 	}
 	sort.Slice(personas, func(i, j int) bool { return personas[i].ID < personas[j].ID })
 	return personas, bank, nil
 }
 
-// Recent returns up to n most-recent memory lines, oldest first.
-func (s *Store) Recent(n int) []string {
+// load reads the seed memory.jsonl into the in-memory stream.
+func (s *Store) load() {
 	f, err := os.Open(filepath.Join(s.dir, "memory.jsonl"))
 	if err != nil {
-		return nil
+		return
 	}
 	defer f.Close()
-	var all []string
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -88,19 +102,28 @@ func (s *Store) Recent(n int) []string {
 		}
 		var en entry
 		if json.Unmarshal([]byte(line), &en) == nil {
-			all = append(all, en.Text)
+			s.lines = append(s.lines, en.Text)
 		}
 	}
-	if len(all) > n {
-		all = all[len(all)-n:]
-	}
-	return all
 }
 
-// Append adds one episodic memory line.
+// Recent returns up to n most-recent memory lines, oldest first.
+func (s *Store) Recent(n int) []string {
+	if len(s.lines) > n {
+		return s.lines[len(s.lines)-n:]
+	}
+	return s.lines
+}
+
+// Append records one episodic memory (always in-process; to disk only when
+// persistence is on).
 func (s *Store) Append(tick int, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
+		return nil
+	}
+	s.lines = append(s.lines, text)
+	if !s.persist {
 		return nil
 	}
 	f, err := os.OpenFile(filepath.Join(s.dir, "memory.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
