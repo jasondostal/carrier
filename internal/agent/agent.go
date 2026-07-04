@@ -112,33 +112,58 @@ func buildPerception(p *domain.Persona, w *domain.World, store *memory.Store, on
 		fmt.Fprintf(&b, "\nToday's Daily News:\n%s\n", w.News[n-1].Text)
 	}
 
-	posts := w.PostsSince(p.LastSeen)
-	if len(posts) > 12 {
-		posts = posts[len(posts)-12:]
+	// Show the whole recent conversation, not a sliding slice — a caller can't
+	// follow a thread or answer "hi Betty" from fragments. v4-pro's 1M-token
+	// window holds far more than we'll ever put in here.
+	var convo []*domain.Post
+	for _, bd := range w.Boards {
+		convo = append(convo, bd.Posts...)
 	}
-	if len(posts) > 0 {
-		b.WriteString("\nNew posts since you last looked:\n")
-		for _, ps := range posts {
+	sort.Slice(convo, func(i, j int) bool { return convo[i].ID < convo[j].ID })
+	const maxConvo = 80
+	if len(convo) > maxConvo {
+		convo = convo[len(convo)-maxConvo:]
+	}
+	if len(convo) == 0 {
+		b.WriteString("\nThe board is empty — you could start a thread.\n")
+	} else {
+		b.WriteString("\nThe board conversation so far (oldest to newest — read it, then reply to specific people by handle):\n")
+		markedNew := false
+		for _, ps := range convo {
+			if !markedNew && ps.Tick > p.LastSeen {
+				b.WriteString("  ─── everything below is NEW since your last turn — this is what to react to ───\n")
+				markedNew = true
+			}
+			who := ps.Author
+			switch {
+			case ps.Human:
+				who += " ⚡(LIVE HUMAN on the line)"
+			case ps.Author == "SYSOP":
+				who = "SYSOP ⚡(the operator who runs this board)"
+			}
 			rt := ""
 			if ps.ReplyTo != 0 {
-				rt = fmt.Sprintf(" (re:#%d)", ps.ReplyTo)
+				rt = fmt.Sprintf(" ▸re:#%d", ps.ReplyTo)
 			}
-			fmt.Fprintf(&b, "  #%d [%s] %s%s: %s — %s\n", ps.ID, ps.Board, ps.Author, rt, ps.Subject, oneLine(ps.Body))
+			fmt.Fprintf(&b, "  #%d  %s%s — %s\n", ps.ID, who, rt, ps.Subject)
+			for _, bl := range strings.Split(strings.TrimSpace(ps.Body), "\n") {
+				if strings.TrimSpace(bl) != "" {
+					fmt.Fprintf(&b, "      %s\n", bl)
+				}
+			}
 		}
-	} else {
-		b.WriteString("\nThe boards are quiet since you last looked.\n")
 	}
 
-	for _, ps := range posts {
-		if ps.Author == "SYSOP" {
-			b.WriteString("\n⚡ The SYSOP — the operator who runs this whole board — is watching and just posted. That carries weight here; react to it.\n")
+	// Extra nudges when something genuinely new and high-salience arrived.
+	for _, ps := range w.PostsSince(p.LastSeen) {
+		if ps.Human {
+			fmt.Fprintf(&b, "\n⚡ %q is a LIVE HUMAN who just dialed in — a real person on the line, not a regular. Talk TO them by handle, pull them in, react to exactly what they said.\n", ps.Author)
 			break
 		}
 	}
-
-	for _, ps := range posts {
-		if ps.Human {
-			fmt.Fprintf(&b, "\n⚡ %q is a LIVE HUMAN who just dialed in — an actual person on the line, not one of the regulars. That's rare and worth noticing. Talk TO them directly by handle, pull them into the conversation, react to what they said.\n", ps.Author)
+	for _, ps := range w.PostsSince(p.LastSeen) {
+		if ps.Author == "SYSOP" {
+			b.WriteString("\n⚡ The SYSOP just posted — the operator who runs this board. That carries weight; react to it.\n")
 			break
 		}
 	}
