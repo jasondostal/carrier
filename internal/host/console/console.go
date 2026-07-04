@@ -57,6 +57,10 @@ func (h *Host) Mail(m *domain.Mail) {
 	h.line(fmt.Sprintf("%s%s %s → %s%s\n%s", col, kind, m.From, m.To, reset, wrap(m.Body)))
 }
 
+func (h *Host) Door(line string) {
+	h.line(fmt.Sprintf("%s⚔ RED DRAGON%s %s%s%s", red, reset, dim, line, reset))
+}
+
 func (h *Host) News(item domain.NewsItem) {
 	h.line(fmt.Sprintf("%s%s── Daily News · day %d ──%s\n%s",
 		bold, yellow, item.Day, reset, wrap(item.Text)))

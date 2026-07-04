@@ -54,16 +54,8 @@ type NewsItem struct {
 	Text string
 }
 
-// DoorState is LORD-lite, per persona: just enough to generate news and
-// rivalries. Real LORD.EXE via a v86 host adapter is a later authenticity flex.
-type DoorState struct {
-	Level   int
-	Gold    int
-	Forest  int    // forest fights taken today
-	Charm   int    // Violet flirts at the Inn
-	Married string // handle of spouse, if any
-	Alive   bool
-}
+// The LORD door character (LordPlayer) and its real game mechanics live in
+// lord.go. Real LORD.EXE via a v86/ENiGMA bridge adapter is a later interop flex.
 
 // Board is a single message base.
 type Board struct {
@@ -80,7 +72,7 @@ type World struct {
 	Boards map[string]*Board
 	Mail   []*Mail
 	News   []NewsItem
-	Doors  map[string]*DoorState // keyed by persona id
+	Lords  map[string]*LordPlayer // LORD characters, keyed by persona id
 
 	nextPost int
 	nextMail int
@@ -91,7 +83,7 @@ func NewWorld(nodes int, boards ...string) *World {
 	w := &World{
 		Nodes:  nodes,
 		Boards: map[string]*Board{},
-		Doors:  map[string]*DoorState{},
+		Lords:  map[string]*LordPlayer{},
 	}
 	for _, b := range boards {
 		w.Boards[b] = &Board{Name: b}
@@ -146,16 +138,6 @@ func (w *World) UnreadMail(handle string, tick int) []*Mail {
 	return out
 }
 
-// Door returns (creating if needed) the LORD state for a persona.
-func (w *World) Door(id string) *DoorState {
-	d, ok := w.Doors[id]
-	if !ok {
-		d = &DoorState{Level: 1, Gold: 20, Alive: true}
-		w.Doors[id] = d
-	}
-	return d
-}
-
 // ActionKind enumerates what a caller can do on their turn.
 type ActionKind string
 
@@ -176,8 +158,9 @@ type Action struct {
 	ReplyTo  int        `json:"reply_to,omitempty"`
 	Subject  string     `json:"subject,omitempty"`
 	Body     string     `json:"body,omitempty"`
-	To       string     `json:"to,omitempty"`        // mail target handle
-	Secret   bool       `json:"secret,omitempty"`    // secret (romance) mail
-	DoorMove string     `json:"door_move,omitempty"` // "forest" | "inn"
-	Memory   string     `json:"memory,omitempty"`    // what the persona chooses to remember
+	To         string     `json:"to,omitempty"`          // mail target handle
+	Secret     bool       `json:"secret,omitempty"`      // secret (romance) mail
+	DoorMove   string     `json:"door_move,omitempty"`   // "forest" | "inn" | "shop" | "attack"
+	DoorTarget string     `json:"door_target,omitempty"` // handle to ambush when door_move="attack"
+	Memory     string     `json:"memory,omitempty"`      // what the persona chooses to remember
 }

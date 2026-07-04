@@ -60,6 +60,10 @@ func (h *Host) Mail(m *domain.Mail) {
 	h.prog.Send(mailMsg{from: m.From, to: m.To, body: m.Body, secret: m.Secret, tick: m.Tick})
 }
 
+func (h *Host) Door(line string) {
+	h.prog.Send(doorMsg{text: line})
+}
+
 func (h *Host) News(item domain.NewsItem) {
 	h.prog.Send(newsMsg{day: item.Day, text: item.Text})
 }

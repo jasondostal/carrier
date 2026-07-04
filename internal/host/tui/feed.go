@@ -52,6 +52,11 @@ func (e mailMsg) render(width int) string {
 	return head + "\n" + wrap(e.body, width)
 }
 
+func (e doorMsg) render(width int) string {
+	tag := lipgloss.NewStyle().Bold(true).Foreground(colDragon).Render("⚔ RED DRAGON")
+	return tag + "\n" + wrap(e.text, width)
+}
+
 func (e newsMsg) render(width int) string {
 	head := lipgloss.NewStyle().Bold(true).Foreground(colYellow).
 		Render(fmt.Sprintf("── Daily News · day %d ──", e.day))

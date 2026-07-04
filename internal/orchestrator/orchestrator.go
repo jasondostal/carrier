@@ -6,7 +6,6 @@ package orchestrator
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"strings"
 
@@ -148,28 +147,44 @@ func (o *Orchestrator) apply(p *domain.Persona, a domain.Action, store *memory.S
 	}
 }
 
-// playLORD is the door loop in miniature: it mutates a caller's Red Dragon
-// state and queues a Daily News line — the drama seed the whole board reacts to.
+// playLORD resolves one Legend of the Red Dragon action, streams the narrated
+// outcome to the sysop's feed, and queues notable events (level-ups, deaths,
+// marriages) for the Daily News — the drama seed the whole board reacts to.
 func (o *Orchestrator) playLORD(p *domain.Persona, a domain.Action) {
-	d := o.World.Door(p.ID)
+	lp := o.World.Lord(p.ID)
+	var line string
+	var notable bool
 	switch a.DoorMove {
 	case "inn":
-		d.Charm++
-		o.pendingNews = append(o.pendingNews,
-			fmt.Sprintf("%s spent the evening at Ye Olde Inn. Violet was seen swooning.", p.Handle))
-	default: // "forest" or anything else
-		d.Forest++
-		gold := 10 + o.RNG.Intn(40)
-		d.Gold += gold
-		if o.RNG.Float64() < 0.3 {
-			d.Level++
-			o.pendingNews = append(o.pendingNews,
-				fmt.Sprintf("%s hacked through the forest and clawed up to level %d!", p.Handle, d.Level))
-		} else {
-			o.pendingNews = append(o.pendingNews,
-				fmt.Sprintf("%s slew a beast in the forest for %d gold.", p.Handle, gold))
+		line, notable = o.World.Inn(p.Handle, lp, o.RNG)
+	case "shop":
+		line, notable = o.World.Shop(p.Handle, lp)
+	case "attack":
+		var def *domain.LordPlayer
+		if t := o.personaByHandle(a.DoorTarget); t != nil {
+			def = o.World.Lord(t.ID)
+		}
+		line, notable = o.World.Attack(p.Handle, lp, a.DoorTarget, def, o.RNG)
+	default: // "forest" or anything unrecognized
+		line, notable = o.World.Forest(p.Handle, lp, o.RNG)
+	}
+	o.Host.Door(line)
+	if notable {
+		o.pendingNews = append(o.pendingNews, line)
+	}
+}
+
+// personaByHandle finds a persona by its BBS handle (for PvP targeting).
+func (o *Orchestrator) personaByHandle(handle string) *domain.Persona {
+	if handle == "" {
+		return nil
+	}
+	for _, p := range o.Personas {
+		if p.Handle == handle {
+			return p
 		}
 	}
+	return nil
 }
 
 // dayBoundary flushes the Daily News and resets per-day door counters.
@@ -184,8 +199,8 @@ func (o *Orchestrator) dayBoundary() {
 		o.Host.News(item)
 		o.pendingNews = nil
 	}
-	for _, d := range o.World.Doors {
-		d.Forest, d.Charm = 0, 0
+	for _, lp := range o.World.Lords {
+		lp.NewDay()
 	}
 }
 

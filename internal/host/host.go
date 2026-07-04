@@ -15,6 +15,7 @@ type Host interface {
 	Disconnect(p *domain.Persona)                  // NO CARRIER
 	Post(p *domain.Post)                           // a post hit a board
 	Mail(m *domain.Mail)                           // private mail flew (sysop sees it)
+	Door(line string)                              // a Legend of the Red Dragon event
 	News(item domain.NewsItem)                     // Daily News bulletin
 	Status(w *domain.World, online []*domain.Persona) // the "glass": node status
 	Close()

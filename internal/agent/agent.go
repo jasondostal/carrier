@@ -84,7 +84,8 @@ code fences — matching this shape:
  "reply_to":0,                   // id of the post you're replying to (omit for new thread)
  "subject":"...","body":"...",   // your message, in your voice, a few punchy lines
  "to":"handle","secret":false,   // for mail; secret=true is a private whisper/romance
- "door_move":"forest|inn",       // for door: play Legend of the Red Dragon (fight, or flirt at the Inn)
+ "door_move":"forest|inn|shop|attack", // for door: play Red Dragon
+ "door_target":"handle",         // when door_move="attack": the caller you ambush
  "memory":"one first-person line about what you'll remember from this moment"}`)
 	return b.String()
 }
@@ -137,9 +138,9 @@ func buildPerception(p *domain.Persona, w *domain.World, store *memory.Store, on
 		}
 	}
 
-	d := w.Door(p.ID)
-	fmt.Fprintf(&b, "\nYour Red Dragon stats: level %d, %d gold, %d forest fights today, charm %d.\n",
-		d.Level, d.Gold, d.Forest, d.Charm)
+	fmt.Fprintf(&b, "\nYour Legend of the Red Dragon character: %s.\n", w.Lord(p.ID).Summary())
+	b.WriteString("Door moves: forest (fight beasts for gold/exp), inn (flirt with Violet), " +
+		"shop (buy better weapon/armor), attack (ambush another caller for their gold — set door_target to a handle).\n")
 
 	if store != nil {
 		if rel := store.Relationships(); rel != "" {

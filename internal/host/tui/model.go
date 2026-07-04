@@ -45,6 +45,10 @@ type mailMsg struct {
 	tick   int
 }
 
+type doorMsg struct {
+	text string
+}
+
 type newsMsg struct {
 	day  int
 	text string
@@ -76,6 +80,7 @@ var (
 	colYellow = lipgloss.Color("#d7af5f") // boards / news
 	colCyan   = lipgloss.Color("#5fafaf") // mail
 	colMag    = lipgloss.Color("#af87d7") // secret mail
+	colDragon = lipgloss.Color("#e0803c") // Red Dragon / door events
 	colDim    = lipgloss.Color("#6c6c6c") // metadata
 	colText   = lipgloss.Color("#c6c6c6") // bodies
 	colAccent = lipgloss.Color("#87afd7") // headers / handles
@@ -166,6 +171,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mailMsg:
 		m.mail++
 		m.bumpTick(msg.tick)
+		m.append(msg)
+		return m, nil
+
+	case doorMsg:
 		m.append(msg)
 		return m, nil
 
