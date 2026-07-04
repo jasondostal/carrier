@@ -91,7 +91,11 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Msg) (string, er
 	if key == "" {
 		return "", fmt.Errorf("%s not set for provider %q (or run with --mock)", p.keyEnv, p.name)
 	}
-	body, _ := json.Marshal(chatReq{Model: id, Messages: msgs, Temperature: 0.8, MaxTokens: 1500})
+	// 6000, not 1500: reasoning models (mimo-ultraspeed, deepseek) spend their
+	// budget in reasoning_content first — a cap they hit mid-think returns EMPTY
+	// content, which parse() silently turns into idle. MiMo burns 400–2400
+	// reasoning tokens on a routine turn before emitting the action JSON.
+	body, _ := json.Marshal(chatReq{Model: id, Messages: msgs, Temperature: 0.8, MaxTokens: 6000})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err

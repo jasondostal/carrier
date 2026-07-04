@@ -150,29 +150,63 @@ func (o *Orchestrator) turns(ctx context.Context) {
 	o.RNG.Shuffle(len(on), func(i, j int) { on[i], on[j] = on[j], on[i] })
 	o.mu.Unlock()
 
+	// Build every caller's perception under the lock (a consistent pre-tick
+	// snapshot) and drop expired sessions, then fire all the model calls
+	// CONCURRENTLY — a tick advances at the speed of one reasoning call, not the
+	// sum of them. Results apply back in order under the lock.
+	type job struct {
+		p     *domain.Persona
+		store *memory.Store
+		msgs  []llm.Msg
+	}
+	o.mu.Lock()
+	var jobs []job
+	var expired []*domain.Persona
 	for _, p := range on {
-		o.mu.Lock()
-		// line-cycling: once a caller's session budget is up, the line drops so
-		// someone else can dial in. Keeps the whole cast rotating through.
+		// line-cycling: once a caller's session budget is up, the line drops.
 		if o.World.Tick-p.SessionStart >= p.SessionLen {
 			p.Online, p.Node = false, 0
-			o.mu.Unlock()
-			o.Host.Disconnect(p)
+			expired = append(expired, p)
 			continue
 		}
 		store := o.Bank[p.ID]
-		msgs := agent.Prompt(p, o.World, store, on)
-		o.mu.Unlock()
+		jobs = append(jobs, job{p: p, store: store, msgs: agent.Prompt(p, o.World, store, on)})
+	}
+	o.mu.Unlock()
 
-		out, err := o.LLM.Chat(ctx, p.Model, msgs)
-		if err != nil {
-			continue // a caller's decision failing is non-fatal; skip their turn
+	for _, p := range expired {
+		o.Host.Disconnect(p)
+	}
+
+	type result struct {
+		p     *domain.Persona
+		store *memory.Store
+		act   domain.Action
+		ok    bool
+	}
+	results := make([]result, len(jobs))
+	var wg sync.WaitGroup
+	for i := range jobs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			j := jobs[i]
+			out, err := o.LLM.Chat(ctx, j.p.Model, j.msgs)
+			if err != nil {
+				return // leaves results[i].ok == false; a failed turn is non-fatal
+			}
+			results[i] = result{p: j.p, store: j.store, act: agent.Parse(out), ok: true}
+		}(i)
+	}
+	wg.Wait()
+
+	for _, r := range results {
+		if !r.ok {
+			continue
 		}
-		act := agent.Parse(out)
-
 		o.mu.Lock()
-		o.apply(p, act, store)
-		p.LastSeen = o.World.Tick
+		o.apply(r.p, r.act, r.store)
+		r.p.LastSeen = o.World.Tick
 		o.mu.Unlock()
 	}
 }
