@@ -60,6 +60,10 @@ go run ./cmd/colony --tui --ticks 40
 
 # living world: memories accumulate on disk across runs (default is ephemeral)
 go run ./cmd/colony --persist --ticks 24
+
+# dial in as a human: run with a telnet listener, then from another window:
+go run ./cmd/colony --tui --telnet :2323 --ticks 200
+#   (other window)  telnet localhost 2323   → who's on, read/post the board, play LORD
 ```
 
 Flags: `--personas` (dir), `--ticks`, `--nodes` (online-set cap), `--day` (ticks
@@ -94,10 +98,13 @@ Add one by dropping a new folder in — no code changes.
 - [x] Simulation core + file memory + multi-provider caller loop + console adapter
 - [x] Bubble Tea TUI — the sysop "glass" (`--tui`): scrolling feed + live node sidebar
 - [x] Optional living world (`--persist`): memories accumulate across runs
+- [x] Real LORD door game — forest combat, leveling, gear, the Inn, PvP ambush
+- [x] Sysop "stir" — inject a SYSOP broadcast the cast reacts to (`s` in the TUI, or `--sysop-say`)
+- [x] Telnet dial-in (`--telnet :2323`) — a human joins as a caller on the live board (who/read/post/LORD)
 - [ ] Repetition guard: stop callers re-posting near-duplicates when they hold a line
-- [ ] Sysop as a first-class node: log in as a caller, or intervene (hang up, ban, post-as)
+- [ ] Menu/template layer + user records + file areas + ratios (see the TriBBS soul spec)
 - [ ] Checkpoints / rewind (the recovery-point idea)
-- [ ] ENiGMA½ bridge adapter → real telnet callers and real DOS doors via v86
+- [ ] Interop finish lines: DOOR32.SYS drop-file seam, real DOS doors via v86, QWK/FidoNet
 
 ## License
 

@@ -6,7 +6,9 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"sync"
 
@@ -54,25 +56,34 @@ func (o *Orchestrator) drainSysop() {
 	o.mu.Lock()
 	pending := o.pendingSysop
 	o.pendingSysop = nil
-	o.mu.Unlock()
+	posts := make([]*domain.Post, 0, len(pending))
 	for _, text := range pending {
-		post := o.World.AddPost(&domain.Post{
+		posts = append(posts, o.World.AddPost(&domain.Post{
 			Board: "General", Tick: o.World.Tick, Author: "SYSOP", Subject: "** SYSOP **", Body: text,
-		})
+		}))
+	}
+	o.mu.Unlock()
+	for _, post := range posts {
 		o.Host.Post(post)
 	}
 }
 
-// Run advances the sim by the given number of ticks.
+// Run advances the sim by the given number of ticks. The world mutex (o.mu)
+// serializes every touch of the world between this loop and any live telnet
+// callers; it is held only around quick reads/writes, never across an LLM call.
 func (o *Orchestrator) Run(ctx context.Context, ticks int) {
 	for t := 0; t < ticks; t++ {
+		o.mu.Lock()
 		o.World.Tick++
+		o.mu.Unlock()
 		o.drainSysop()
 		o.admit()
 		o.turns(ctx)
 		o.dayBoundary()
 	}
+	o.mu.Lock()
 	o.Host.Status(o.World, o.online())
+	o.mu.Unlock()
 }
 
 func (o *Orchestrator) online() []*domain.Persona {
@@ -103,6 +114,8 @@ func (o *Orchestrator) freeNode() int {
 // admit fills free lines from offline callers, weighted by call urge. This is
 // where "the board is busy" and "who's online together" emerge.
 func (o *Orchestrator) admit() {
+	o.mu.Lock()
+	var connected []*domain.Persona
 	for {
 		n := o.freeNode()
 		if n == 0 {
@@ -120,29 +133,47 @@ func (o *Orchestrator) admit() {
 		p := cand[o.RNG.Intn(len(cand))]
 		p.Online, p.Node = true, n
 		p.SessionStart, p.SessionLen = o.World.Tick, 2+o.RNG.Intn(4) // stay 2–5 ticks
+		connected = append(connected, p)
+	}
+	o.mu.Unlock()
+	for _, p := range connected {
 		o.Host.Connect(p)
 	}
 }
 
-// turns gives each online caller one action, in shuffled order.
+// turns gives each online caller one action, in shuffled order. The world lock
+// is held only while reading perception and applying the result — never during
+// the LLM call — so a live telnet caller can post between turns without racing.
 func (o *Orchestrator) turns(ctx context.Context) {
+	o.mu.Lock()
 	on := o.online()
 	o.RNG.Shuffle(len(on), func(i, j int) { on[i], on[j] = on[j], on[i] })
+	o.mu.Unlock()
+
 	for _, p := range on {
+		o.mu.Lock()
 		// line-cycling: once a caller's session budget is up, the line drops so
 		// someone else can dial in. Keeps the whole cast rotating through.
 		if o.World.Tick-p.SessionStart >= p.SessionLen {
-			o.Host.Disconnect(p)
 			p.Online, p.Node = false, 0
+			o.mu.Unlock()
+			o.Host.Disconnect(p)
 			continue
 		}
 		store := o.Bank[p.ID]
-		act, err := agent.Decide(ctx, o.LLM, p, o.World, store, on)
+		msgs := agent.Prompt(p, o.World, store, on)
+		o.mu.Unlock()
+
+		out, err := o.LLM.Chat(ctx, p.Model, msgs)
 		if err != nil {
 			continue // a caller's decision failing is non-fatal; skip their turn
 		}
+		act := agent.Parse(out)
+
+		o.mu.Lock()
 		o.apply(p, act, store)
 		p.LastSeen = o.World.Tick
+		o.mu.Unlock()
 	}
 }
 
@@ -221,20 +252,117 @@ func (o *Orchestrator) personaByHandle(handle string) *domain.Persona {
 	return nil
 }
 
+// ── telnet Backend ───────────────────────────────────────────────────────────
+//
+// These methods let a live human caller (dialed in over telnet) touch the same
+// world the LLM cast is running in. Every one takes the world lock, so they're
+// safe to call concurrently with the tick loop. Human posts and door plays flow
+// to the sysop's Host feed just like a persona's, so the operator sees the guest.
+
+// WhoOnline returns one line per persona currently on a node.
+func (o *Orchestrator) WhoOnline() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var out []string
+	for _, p := range o.Personas {
+		if p.Online {
+			out = append(out, fmt.Sprintf("node %d  %s (%s)", p.Node, p.Handle, p.Model))
+		}
+	}
+	return out
+}
+
+// RecentPosts returns up to n most-recent board posts, oldest first, preformatted.
+func (o *Orchestrator) RecentPosts(n int) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	posts := o.World.PostsSince(0)
+	sort.Slice(posts, func(i, j int) bool { return posts[i].ID < posts[j].ID })
+	if len(posts) > n {
+		posts = posts[len(posts)-n:]
+	}
+	out := make([]string, 0, len(posts))
+	for _, p := range posts {
+		out = append(out, fmt.Sprintf("[%s] %s: %s\n    %s", p.Board, p.Author, p.Subject, firstLine(p.Body, 140)))
+	}
+	return out
+}
+
+// Post adds a human caller's message to the board and surfaces it to the sysop.
+func (o *Orchestrator) Post(handle, board, subject, body string) {
+	if strings.TrimSpace(board) == "" {
+		board = "General"
+	}
+	o.mu.Lock()
+	post := o.World.AddPost(&domain.Post{
+		Board: board, Tick: o.World.Tick, Author: handle, Subject: subject, Body: body,
+	})
+	o.mu.Unlock()
+	o.Host.Post(post)
+}
+
+// LordSheet returns a human caller's Red Dragon character summary.
+func (o *Orchestrator) LordSheet(handle string) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.World.Lord(handle).Summary()
+}
+
+// LordMove resolves one Red Dragon action for a human caller and returns the
+// narrated outcome (also streamed to the sysop feed).
+func (o *Orchestrator) LordMove(handle, move, target string) string {
+	o.mu.Lock()
+	lp := o.World.Lord(handle)
+	var line string
+	switch move {
+	case "inn":
+		line, _ = o.World.Inn(handle, lp, o.RNG)
+	case "shop":
+		line, _ = o.World.Shop(handle, lp)
+	case "attack":
+		var def *domain.LordPlayer
+		if t := o.personaByHandle(target); t != nil {
+			def = o.World.Lord(t.ID)
+		}
+		line, _ = o.World.Attack(handle, lp, target, def, o.RNG)
+	default:
+		line, _ = o.World.Forest(handle, lp, o.RNG)
+	}
+	o.mu.Unlock()
+	o.Host.Door(line)
+	return line
+}
+
+// firstLine collapses whitespace and truncates for a compact preview.
+func firstLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > n {
+		s = s[:n] + "…"
+	}
+	return s
+}
+
 // dayBoundary flushes the Daily News and resets per-day door counters.
 func (o *Orchestrator) dayBoundary() {
+	o.mu.Lock()
 	if o.TicksPerDay <= 0 || o.World.Tick%o.TicksPerDay != 0 {
+		o.mu.Unlock()
 		return
 	}
 	o.World.Day++
+	var item *domain.NewsItem
 	if len(o.pendingNews) > 0 {
-		item := domain.NewsItem{Day: o.World.Day, Text: strings.Join(o.pendingNews, "\n")}
-		o.World.News = append(o.World.News, item)
-		o.Host.News(item)
+		it := domain.NewsItem{Day: o.World.Day, Text: strings.Join(o.pendingNews, "\n")}
+		o.World.News = append(o.World.News, it)
 		o.pendingNews = nil
+		item = &it
 	}
 	for _, lp := range o.World.Lords {
 		lp.NewDay()
+	}
+	o.mu.Unlock()
+	if item != nil {
+		o.Host.News(*item)
 	}
 }
 

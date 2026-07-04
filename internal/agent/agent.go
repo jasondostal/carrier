@@ -4,7 +4,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -14,18 +13,20 @@ import (
 	"github.com/jasondostal/carrier/internal/memory"
 )
 
-// Decide asks a persona's model for its next action.
-func Decide(ctx context.Context, c *llm.Client, p *domain.Persona, w *domain.World, store *memory.Store, online []*domain.Persona) (domain.Action, error) {
-	msgs := []llm.Msg{
+// Prompt builds the chat messages for a caller's turn: the persona's system
+// card plus its current perception of the board. It is kept separate from the
+// model call so the orchestrator can build it under the world lock and release
+// before the (slow) LLM request — letting a live telnet caller touch the world
+// meanwhile without a data race.
+func Prompt(p *domain.Persona, w *domain.World, store *memory.Store, online []*domain.Persona) []llm.Msg {
+	return []llm.Msg{
 		{Role: "system", Content: buildSystem(p)},
 		{Role: "user", Content: buildPerception(p, w, store, online)},
 	}
-	out, err := c.Chat(ctx, p.Model, msgs)
-	if err != nil {
-		return domain.Action{Kind: domain.ActIdle}, err
-	}
-	return parse(out), nil
 }
+
+// Parse extracts the structured Action from a model's reply.
+func Parse(out string) domain.Action { return parse(out) }
 
 func buildSystem(p *domain.Persona) string {
 	var b strings.Builder

@@ -15,6 +15,7 @@ import (
 	"github.com/jasondostal/carrier/internal/llm"
 	"github.com/jasondostal/carrier/internal/memory"
 	"github.com/jasondostal/carrier/internal/orchestrator"
+	"github.com/jasondostal/carrier/internal/telnet"
 )
 
 func main() {
@@ -27,6 +28,7 @@ func main() {
 	useTUI := flag.Bool("tui", false, "render in the full-screen Bubble Tea sysop console")
 	persist := flag.Bool("persist", false, "write new memories back to disk (living world across runs); default is ephemeral")
 	sysopSay := flag.String("sysop-say", "", "inject a one-time SYSOP broadcast at startup that the cast will react to (demo of sysop 'stir')")
+	telnetAddr := flag.String("telnet", "", "dial-in listener address, e.g. :2323 (empty = off) — telnet in from another window")
 	flag.Parse()
 
 	personas, bank, err := memory.Load(*personasDir, *persist)
@@ -48,6 +50,15 @@ func main() {
 	}
 	if *sysopSay != "" {
 		o.InjectSysop(*sysopSay)
+	}
+	if *telnetAddr != "" {
+		srv := telnet.NewServer(*telnetAddr, o)
+		go func() {
+			if err := srv.ListenAndServe(); err != nil {
+				fmt.Fprintln(os.Stderr, "telnet:", err)
+			}
+		}()
+		fmt.Printf("dial-in: telnet listening on %s — connect from another window\n", *telnetAddr)
 	}
 
 	mode := "LIVE (OpenRouter)"
@@ -80,4 +91,9 @@ func main() {
 
 	fmt.Printf("carrier — %d callers, %d nodes, %s\n\n", len(personas), *nodes, mode)
 	o.Run(context.Background(), *ticks)
+
+	if *telnetAddr != "" {
+		fmt.Println("\nsim complete — board stays up for dial-in. Ctrl-C to quit.")
+		select {} // keep serving telnet callers against the now-static board
+	}
 }
