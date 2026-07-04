@@ -34,6 +34,7 @@ type Post struct {
 	ReplyTo int
 	Subject string
 	Body    string
+	Human   bool // posted by a live human caller (dialed in over telnet), not a persona
 }
 
 // Mail is private inter-caller mail. Secret flags the budding-romance path:

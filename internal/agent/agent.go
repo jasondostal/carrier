@@ -6,6 +6,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jasondostal/carrier/internal/domain"
@@ -135,6 +136,13 @@ func buildPerception(p *domain.Persona, w *domain.World, store *memory.Store, on
 		}
 	}
 
+	for _, ps := range posts {
+		if ps.Human {
+			fmt.Fprintf(&b, "\n⚡ %q is a LIVE HUMAN who just dialed in — an actual person on the line, not one of the regulars. That's rare and worth noticing. Talk TO them directly by handle, pull them into the conversation, react to what they said.\n", ps.Author)
+			break
+		}
+	}
+
 	if mail := w.UnreadMail(p.Handle, p.LastSeen); len(mail) > 0 {
 		b.WriteString("\nPrivate mail for you:\n")
 		for _, m := range mail {
@@ -159,6 +167,26 @@ func buildPerception(p *domain.Persona, w *domain.World, store *memory.Store, on
 			for _, m := range mems {
 				fmt.Fprintf(&b, "  - %s\n", m)
 			}
+		}
+	}
+
+	// Repetition guard: show the caller their own recent posts and forbid rehashing.
+	var mine []*domain.Post
+	for _, bd := range w.Boards {
+		for _, ps := range bd.Posts {
+			if ps.Author == p.Handle {
+				mine = append(mine, ps)
+			}
+		}
+	}
+	if len(mine) > 0 {
+		sort.Slice(mine, func(i, j int) bool { return mine[i].ID < mine[j].ID })
+		if len(mine) > 3 {
+			mine = mine[len(mine)-3:]
+		}
+		b.WriteString("\nYou have ALREADY posted these recently — do NOT repeat or rephrase them. Say something genuinely new, reply to a specific person, play a door, or log off if you're out of material:\n")
+		for _, ps := range mine {
+			fmt.Fprintf(&b, "  - %q %s\n", ps.Subject, oneLine(ps.Body))
 		}
 	}
 

@@ -295,7 +295,7 @@ func (o *Orchestrator) Post(handle, board, subject, body string) {
 	}
 	o.mu.Lock()
 	post := o.World.AddPost(&domain.Post{
-		Board: board, Tick: o.World.Tick, Author: handle, Subject: subject, Body: body,
+		Board: board, Tick: o.World.Tick, Author: handle, Subject: subject, Body: body, Human: true,
 	})
 	o.mu.Unlock()
 	o.Host.Post(post)
