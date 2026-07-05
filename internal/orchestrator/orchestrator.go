@@ -15,8 +15,10 @@ import (
 	"github.com/jasondostal/carrier/internal/agent"
 	"github.com/jasondostal/carrier/internal/domain"
 	"github.com/jasondostal/carrier/internal/host"
+	"github.com/jasondostal/carrier/internal/intent"
 	"github.com/jasondostal/carrier/internal/llm"
 	"github.com/jasondostal/carrier/internal/memory"
+	"github.com/jasondostal/carrier/internal/voice"
 )
 
 // Orchestrator wires the world, the model client, the host adapter, and the
@@ -29,6 +31,12 @@ type Orchestrator struct {
 	Personas    []*domain.Persona
 	RNG         *rand.Rand
 	TicksPerDay int
+
+	// EngineIntent switches the decision layer from "ask each persona's LLM what
+	// to do" to the deterministic intent engine + voice model (the game-engine
+	// path). Voice writes message bodies when set.
+	EngineIntent bool
+	Voice        voice.Composer
 
 	pendingNews []string
 
@@ -145,6 +153,10 @@ func (o *Orchestrator) admit() {
 // is held only while reading perception and applying the result — never during
 // the LLM call — so a live telnet caller can post between turns without racing.
 func (o *Orchestrator) turns(ctx context.Context) {
+	if o.EngineIntent {
+		o.turnsEngine(ctx)
+		return
+	}
 	o.mu.Lock()
 	on := o.online()
 	o.RNG.Shuffle(len(on), func(i, j int) { on[i], on[j] = on[j], on[i] })
@@ -209,6 +221,94 @@ func (o *Orchestrator) turns(ctx context.Context) {
 		r.p.LastSeen = o.World.Tick
 		o.mu.Unlock()
 	}
+}
+
+// turnsEngine is the game-engine turn: the intent engine picks each caller's
+// action deterministically (under the lock, no LLM), then the voice model writes
+// the message bodies CONCURRENTLY and off the lock, and results apply in order.
+// A tick still advances at the speed of one voice call, not the sum of them.
+func (o *Orchestrator) turnsEngine(ctx context.Context) {
+	type job struct {
+		p     *domain.Persona
+		store *memory.Store
+		act   domain.Action
+		req   voice.Request
+		voice bool
+	}
+
+	o.mu.Lock()
+	on := o.online()
+	o.RNG.Shuffle(len(on), func(i, j int) { on[i], on[j] = on[j], on[i] })
+	var jobs []job
+	var expired []*domain.Persona
+	for _, p := range on {
+		if o.World.Tick-p.SessionStart >= p.SessionLen {
+			p.Online, p.Node = false, 0
+			expired = append(expired, p)
+			continue
+		}
+		act := intent.Choose(p, o.World, on, o.RNG)
+		j := job{p: p, store: o.Bank[p.ID], act: act}
+		switch act.Kind {
+		case domain.ActPost:
+			j.voice, j.req = true, voice.Request{Kind: domain.ActPost, Echo: act.Board}
+		case domain.ActReply:
+			j.voice, j.req = true, voice.Request{Kind: domain.ActReply, Echo: act.Board,
+				To: act.To, Subject: act.Subject, Quoted: o.quoteOf(act.ReplyTo)}
+		case domain.ActMail:
+			j.voice, j.req = true, voice.Request{Kind: domain.ActMail, Echo: "mail", To: act.To}
+		}
+		jobs = append(jobs, j)
+	}
+	o.mu.Unlock()
+
+	for _, p := range expired {
+		o.Host.Disconnect(p)
+	}
+
+	var wg sync.WaitGroup
+	for i := range jobs {
+		if !jobs[i].voice {
+			continue
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body, err := o.Voice.Compose(ctx, jobs[i].p, jobs[i].req)
+			if err != nil || strings.TrimSpace(body) == "" {
+				jobs[i].act.Kind = domain.ActIdle // a failed voice turn just lurks; non-fatal
+				return
+			}
+			jobs[i].act.Body = body
+			if jobs[i].act.Kind == domain.ActPost {
+				jobs[i].act.Subject = voice.Subject(body)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	for _, j := range jobs {
+		o.mu.Lock()
+		o.apply(j.p, j.act, j.store)
+		j.p.LastSeen = o.World.Tick
+		o.mu.Unlock()
+	}
+}
+
+// quoteOf returns a post's body by id for the voice prompt's "they wrote" block.
+// Call under the world lock.
+func (o *Orchestrator) quoteOf(id int) string {
+	if id == 0 {
+		return ""
+	}
+	for _, b := range o.World.Boards {
+		for _, ps := range b.Posts {
+			if ps.ID == id {
+				return ps.Body
+			}
+		}
+	}
+	return ""
 }
 
 func (o *Orchestrator) apply(p *domain.Persona, a domain.Action, store *memory.Store) {

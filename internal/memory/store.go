@@ -29,8 +29,9 @@ type personaFile struct {
 	Model    string   `yaml:"model"`
 	Bio      string   `yaml:"bio"`
 	Style    string   `yaml:"style"`
-	Goals    []string `yaml:"goals"`
-	CallUrge float64  `yaml:"call_urge"`
+	Goals    []string      `yaml:"goals"`
+	CallUrge float64       `yaml:"call_urge"`
+	Intent   domain.Intent `yaml:"intent"`
 }
 
 // Store manages one persona's mind: the seed stream loaded from disk plus any
@@ -77,6 +78,7 @@ func Load(root string, persist bool) ([]*domain.Persona, Bank, error) {
 		personas = append(personas, &domain.Persona{
 			ID: id, Handle: pf.Handle, Name: pf.Name, Model: pf.Model,
 			Bio: pf.Bio, Style: pf.Style, Goals: pf.Goals, CallUrge: pf.CallUrge,
+			Intent: pf.Intent,
 		})
 		s := &Store{dir: dir, persist: persist}
 		s.load()

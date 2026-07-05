@@ -16,6 +16,7 @@ type Persona struct {
 	Style    string   // voice / behavior guidance
 	Goals    []string // what they're here to do or stir up
 	CallUrge float64  // 0..1 baseline propensity to dial in on a given tick
+	Intent   Intent   // persona-weighted utility knobs the engine picks actions with
 
 	// runtime state (not persisted)
 	Online       bool
@@ -23,6 +24,22 @@ type Persona struct {
 	LastSeen     int // last tick this persona perceived the boards
 	SessionStart int // tick this persona dialed in
 	SessionLen   int // ticks they'll stay before the line cycles them off
+}
+
+// Intent holds the persona-weighted utility knobs the engine uses to CHOOSE an
+// action each turn — the deterministic replacement for asking an LLM "what do
+// you do?". Zero values fall back to sane baselines (see intent.Choose), so a
+// persona.yaml with no intent block still behaves. This is the seam that turns
+// carrier's ops into a game engine: the model shrinks to writing the words, the
+// engine decides the moves.
+type Intent struct {
+	Post       float64 `yaml:"post"`       // urge to start a new thread
+	Reply      float64 `yaml:"reply"`      // urge to answer others
+	Mail       float64 `yaml:"mail"`       // urge to send private mail
+	Door       float64 `yaml:"door"`       // urge to play Red Dragon
+	Aggression float64 `yaml:"aggression"` // colors reply targeting + attack-vs-forest
+	Romance    float64 `yaml:"romance"`    // secret mail + the Inn
+	Logoff     float64 `yaml:"logoff"`     // urge to bail early
 }
 
 // Post is a message-base post. ReplyTo == 0 means a new thread.

@@ -16,6 +16,7 @@ import (
 	"github.com/jasondostal/carrier/internal/memory"
 	"github.com/jasondostal/carrier/internal/orchestrator"
 	"github.com/jasondostal/carrier/internal/telnet"
+	"github.com/jasondostal/carrier/internal/voice"
 )
 
 func main() {
@@ -25,6 +26,8 @@ func main() {
 	perDay := flag.Int("day", 8, "ticks per day (Daily News cadence)")
 	seed := flag.Int64("seed", 1, "RNG seed for reproducible runs")
 	mock := flag.Bool("mock", false, "run offline with canned actions (no OpenRouter spend)")
+	intentMode := flag.String("intent", "engine", "decision layer: 'engine' (deterministic utility + voice model) or 'llm' (each persona's brain decides)")
+	voiceModel := flag.String("voice-model", "", "voice model id for engine intent, e.g. lmstudio:carrier-voice-8b (empty = canned mock voice)")
 	useTUI := flag.Bool("tui", false, "render in the full-screen Bubble Tea sysop console")
 	persist := flag.Bool("persist", false, "write new memories back to disk (living world across runs); default is ephemeral")
 	sysopSay := flag.String("sysop-say", "", "inject a one-time SYSOP broadcast at startup that the cast will react to (demo of sysop 'stir')")
@@ -48,6 +51,20 @@ func main() {
 		World: w, LLM: c, Bank: bank, Personas: personas,
 		RNG: rand.New(rand.NewSource(*seed)), TicksPerDay: *perDay,
 	}
+
+	// Engine intent: the game engine decides actions; the voice model (or a
+	// canned mock when offline / no model given) writes the words.
+	voiceMode := ""
+	if *intentMode == "engine" {
+		o.EngineIntent = true
+		if *mock || *voiceModel == "" {
+			o.Voice = voice.Mock{}
+			voiceMode = "engine intent · canned voice"
+		} else {
+			o.Voice = voice.LLM{Client: c, Model: *voiceModel}
+			voiceMode = "engine intent · voice=" + *voiceModel
+		}
+	}
 	if *sysopSay != "" {
 		o.InjectSysop(*sysopSay)
 	}
@@ -64,6 +81,12 @@ func main() {
 	mode := "LIVE (OpenRouter)"
 	if *mock {
 		mode = "MOCK (offline, no spend)"
+	}
+	if voiceMode != "" {
+		mode = voiceMode
+		if *mock {
+			mode += " (offline)"
+		}
 	}
 	if *persist {
 		mode += " · persistent"
