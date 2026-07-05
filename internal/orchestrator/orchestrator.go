@@ -229,11 +229,13 @@ func (o *Orchestrator) turns(ctx context.Context) {
 // A tick still advances at the speed of one voice call, not the sum of them.
 func (o *Orchestrator) turnsEngine(ctx context.Context) {
 	type job struct {
-		p     *domain.Persona
-		store *memory.Store
-		act   domain.Action
-		req   voice.Request
-		voice bool
+		p        *domain.Persona
+		store    *memory.Store
+		act      domain.Action
+		req      voice.Request
+		voice    bool
+		doorLine string // mechanical LORD outcome (door actions)
+		notable  bool   // door outcome worth a Daily News brag
 	}
 
 	o.mu.Lock()
@@ -257,6 +259,13 @@ func (o *Orchestrator) turnsEngine(ctx context.Context) {
 				To: act.To, Subject: act.Subject, Quoted: o.quoteOf(act.ReplyTo)}
 		case domain.ActMail:
 			j.voice, j.req = true, voice.Request{Kind: domain.ActMail, Echo: "mail", To: act.To}
+		case domain.ActDoor:
+			// resolve the door NOW (under the lock, mutates LORD state); a notable
+			// outcome gets an in-character brag voiced off the lock below.
+			j.doorLine, j.notable = o.resolveLord(p, act)
+			if j.notable {
+				j.voice, j.req = true, voice.Request{Kind: domain.ActDoor, Echo: "General", Event: j.doorLine}
+			}
 		}
 		jobs = append(jobs, j)
 	}
@@ -276,7 +285,11 @@ func (o *Orchestrator) turnsEngine(ctx context.Context) {
 			defer wg.Done()
 			body, err := o.Voice.Compose(ctx, jobs[i].p, jobs[i].req)
 			if err != nil || strings.TrimSpace(body) == "" {
-				jobs[i].act.Kind = domain.ActIdle // a failed voice turn just lurks; non-fatal
+				// a failed voice turn just lurks — but a door outcome still
+				// happened, so keep the door and fall back to its mechanical line.
+				if jobs[i].act.Kind != domain.ActDoor {
+					jobs[i].act.Kind = domain.ActIdle
+				}
 				return
 			}
 			jobs[i].act.Body = body
@@ -289,7 +302,21 @@ func (o *Orchestrator) turnsEngine(ctx context.Context) {
 
 	for _, j := range jobs {
 		o.mu.Lock()
-		o.apply(j.p, j.act, j.store)
+		if j.act.Kind == domain.ActDoor {
+			o.Host.Door(j.doorLine)
+			if j.notable {
+				news := j.doorLine
+				if brag := strings.TrimSpace(j.act.Body); brag != "" {
+					news += "\n  » " + j.p.Handle + ": " + brag // in-character brag
+				}
+				o.pendingNews = append(o.pendingNews, news)
+			}
+			if j.store != nil {
+				_ = j.store.Append(o.World.Tick, j.doorLine)
+			}
+		} else {
+			o.apply(j.p, j.act, j.store)
+		}
 		j.p.LastSeen = o.World.Tick
 		o.mu.Unlock()
 	}
@@ -350,26 +377,32 @@ func (o *Orchestrator) apply(p *domain.Persona, a domain.Action, store *memory.S
 // outcome to the sysop's feed, and queues notable events (level-ups, deaths,
 // marriages) for the Daily News — the drama seed the whole board reacts to.
 func (o *Orchestrator) playLORD(p *domain.Persona, a domain.Action) {
+	line, notable := o.resolveLord(p, a)
+	o.Host.Door(line)
+	if notable {
+		o.pendingNews = append(o.pendingNews, line)
+	}
+}
+
+// resolveLord runs one Red Dragon move and returns its narrated outcome plus
+// whether it's Daily-News-worthy. It mutates LORD state, so call under the world
+// lock. Kept side-effect-free (no Host/News) so the engine path can voice a brag
+// off the outcome before deciding what to broadcast.
+func (o *Orchestrator) resolveLord(p *domain.Persona, a domain.Action) (string, bool) {
 	lp := o.World.Lord(p.ID)
-	var line string
-	var notable bool
 	switch a.DoorMove {
 	case "inn":
-		line, notable = o.World.Inn(p.Handle, lp, o.RNG)
+		return o.World.Inn(p.Handle, lp, o.RNG)
 	case "shop":
-		line, notable = o.World.Shop(p.Handle, lp)
+		return o.World.Shop(p.Handle, lp)
 	case "attack":
 		var def *domain.LordPlayer
 		if t := o.personaByHandle(a.DoorTarget); t != nil {
 			def = o.World.Lord(t.ID)
 		}
-		line, notable = o.World.Attack(p.Handle, lp, a.DoorTarget, def, o.RNG)
+		return o.World.Attack(p.Handle, lp, a.DoorTarget, def, o.RNG)
 	default: // "forest" or anything unrecognized
-		line, notable = o.World.Forest(p.Handle, lp, o.RNG)
-	}
-	o.Host.Door(line)
-	if notable {
-		o.pendingNews = append(o.pendingNews, line)
+		return o.World.Forest(p.Handle, lp, o.RNG)
 	}
 }
 

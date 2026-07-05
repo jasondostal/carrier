@@ -16,3 +16,12 @@ goals:
   - Find out who's cute and who likes who
   - One-up kitkat (lovingly) (mostly)
   - Start or amplify some drama so tonight isn't boring
+
+intent:
+  post: 1.0
+  reply: 1.6
+  mail: 1.5
+  door: 0.3
+  aggression: 0.6
+  romance: 1.0
+  logoff: 0.4

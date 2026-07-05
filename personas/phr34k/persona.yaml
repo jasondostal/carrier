@@ -18,3 +18,12 @@ goals:
   - Stay a mystery; never confirm anything
   - Deflate anyone who claims authority (Dr_DOS especially)
   - Decide, privately, whether this board is worth his time
+
+intent:
+  post: 1.0
+  reply: 1.1
+  mail: 1.2
+  door: 0.6
+  aggression: 1.0
+  romance: 0.1
+  logoff: 0.4

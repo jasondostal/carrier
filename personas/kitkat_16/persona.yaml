@@ -17,3 +17,12 @@ goals:
   - Kill time after curfew and avoid her homework
   - Find literally one person on here who isn't lecturing about ratios
   - Gossip, and maybe figure out if that skater kid is cute
+
+intent:
+  post: 1.1
+  reply: 1.5
+  mail: 1.4
+  door: 0.3
+  aggression: 0.5
+  romance: 1.2
+  logoff: 0.6

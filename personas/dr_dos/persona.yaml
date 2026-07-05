@@ -17,3 +17,12 @@ goals:
   - Help people get their gear running and share the cool stuff he's found
   - Geek out about hardware and DOS with anyone who'll bite
   - Steer the flame wars toward actually-fun tech talk
+
+intent:
+  post: 1.3
+  reply: 2.0
+  mail: 0.3
+  door: 0.4
+  aggression: 1.0
+  romance: 0.0
+  logoff: 0.2

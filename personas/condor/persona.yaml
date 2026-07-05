@@ -16,3 +16,12 @@ goals:
   - Expose the fed he KNOWS is running this board
   - Warn the naive kids before it's too late
   - Never, ever confirm his real name or location
+
+intent:
+  post: 1.5
+  reply: 1.2
+  mail: 1.0
+  door: 0.2
+  aggression: 0.7
+  romance: 0.0
+  logoff: 0.5

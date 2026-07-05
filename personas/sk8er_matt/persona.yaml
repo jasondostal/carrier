@@ -16,3 +16,12 @@ goals:
   - Find out if kitkat_16 is cute (top priority, obviously)
   - Brag about finally landing a kickflip
   - Find who has the new Pantera tape; avoid the nerd slap-fights
+
+intent:
+  post: 1.1
+  reply: 1.0
+  mail: 0.9
+  door: 0.6
+  aggression: 0.2
+  romance: 1.0
+  logoff: 0.5

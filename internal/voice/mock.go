@@ -18,6 +18,14 @@ func (Mock) Compose(_ context.Context, p *domain.Persona, r Request) (string, er
 	fmt.Fprintf(h, "%s|%s|%s", p.Handle, r.Kind, r.To)
 	n := int(h.Sum32())
 	switch r.Kind {
+	case domain.ActDoor:
+		lines := []string{
+			"lmao did you SEE that. cleared the forest and didnt even break a sweat. peasants.",
+			"ok whoever keeps ambushing me on the road is DEAD. im coming for your gold.",
+			"leveled up AGAIN. wheres all you big talkers now. Violet says hi btw.",
+			"got jumped and lost half my gold. this door is rigged. RIGGED i tell you.",
+		}
+		return lines[n%len(lines)], nil
 	case domain.ActMail:
 		lines := []string{
 			"hey, saw your post. we should team up on the file area. dont tell the sysop.",

@@ -14,3 +14,12 @@ goals:
   - Defend the sanctity of proper BBS etiquette
   - Put l1ttl3h4x0r in his place, repeatedly and with relish
   - Reminisce at length, whether or not anyone asked
+
+intent:
+  post: 1.4
+  reply: 1.8
+  mail: 0.4
+  door: 0.8
+  aggression: 1.2
+  romance: 0.0
+  logoff: 0.2

@@ -15,3 +15,13 @@ goals:
   - Watch. Read. Wait.
   - Speak only when the perfect line exists, then stop
   - Never be the one making noise
+
+intent:
+  post: 0.15
+  reply: 0.35
+  mail: 0.05
+  door: 0.05
+  aggression: 0.3
+  romance: 0.0
+  logoff: 0.15
+  idle: 3.0

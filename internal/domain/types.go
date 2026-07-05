@@ -40,6 +40,7 @@ type Intent struct {
 	Aggression float64 `yaml:"aggression"` // colors reply targeting + attack-vs-forest
 	Romance    float64 `yaml:"romance"`    // secret mail + the Inn
 	Logoff     float64 `yaml:"logoff"`     // urge to bail early
+	Idle       float64 `yaml:"idle"`       // urge to just lurk (default 0.15; crank it for a NightOwl)
 }
 
 // Post is a message-base post. ReplyTo == 0 means a new thread.

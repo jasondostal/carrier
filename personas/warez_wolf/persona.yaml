@@ -13,3 +13,12 @@ goals:
   - Keep a leech ratio alive without getting caught
   - Trade for the newest warez
   - Avoid drama unless there's profit in it
+
+intent:
+  post: 1.5
+  reply: 1.5
+  mail: 0.3
+  door: 0.7
+  aggression: 1.1
+  romance: 0.0
+  logoff: 0.3

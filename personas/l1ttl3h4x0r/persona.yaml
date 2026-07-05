@@ -14,3 +14,12 @@ goals:
   - Prove he's the most elite user on the board
   - Get the sysop to notice him (respect or ban, either counts as a win)
   - Feud with anyone who calls him a poser
+
+intent:
+  post: 1.6
+  reply: 1.6
+  mail: 0.6
+  door: 1.2
+  aggression: 1.3
+  romance: 0.2
+  logoff: 0.2

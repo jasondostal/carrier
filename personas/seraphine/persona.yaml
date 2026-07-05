@@ -17,3 +17,12 @@ goals:
   - Find (or manufacture) a romance worth the drama
   - Be the person everyone confides in — and gossips to
   - Never, ever be ignored
+
+intent:
+  post: 1.0
+  reply: 1.6
+  mail: 1.8
+  door: 0.2
+  aggression: 0.7
+  romance: 1.3
+  logoff: 0.2

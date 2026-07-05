@@ -19,11 +19,12 @@ import (
 
 // Request is the focused context the voice model needs to write ONE message.
 type Request struct {
-	Kind    domain.ActionKind // post | reply | mail
+	Kind    domain.ActionKind // post | reply | mail | door
 	Echo    string            // board / echo name
 	To      string            // handle being replied to / mailed
 	Subject string            // subject being replied under
 	Quoted  string            // the body being replied to (empty for a new thread)
+	Event   string            // for door: the mechanical outcome to brag/complain about
 }
 
 // Composer writes an in-persona message body. Swap the implementation to change
@@ -75,6 +76,9 @@ func systemPrompt(p *domain.Persona, echo string) string {
 
 func userPrompt(r Request) string {
 	switch r.Kind {
+	case domain.ActDoor:
+		return fmt.Sprintf("This just happened to you in the door game Legend of the Red Dragon: %s\n\n"+
+			"Post a short brag or complaint about it to the board, in your voice — a line or two.", r.Event)
 	case domain.ActMail:
 		return fmt.Sprintf("You are writing a private message to %s.\n\nWrite your message.", r.To)
 	case domain.ActReply:

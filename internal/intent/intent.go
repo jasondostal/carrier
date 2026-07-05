@@ -61,7 +61,7 @@ func Choose(p *domain.Persona, w *domain.World, online []*domain.Persona, rng *r
 		{kMail, cond(len(others) > 0, iw.Mail)},
 		{kDoor, iw.Door},
 		{kLogoff, iw.Logoff + pressure*1.5},
-		{kIdle, 0.15}, // a small floor so quiet callers sometimes just lurk
+		{kIdle, iw.Idle}, // lurk propensity; a NightOwl cranks this to stay quiet
 	}
 	total := 0.0
 	for _, c := range cands {
@@ -126,6 +126,9 @@ func withDefaults(iw domain.Intent) domain.Intent {
 	}
 	if iw.Logoff == 0 {
 		iw.Logoff = 0.2
+	}
+	if iw.Idle == 0 {
+		iw.Idle = 0.15 // the old fixed floor, now the default
 	}
 	return iw
 }

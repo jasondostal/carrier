@@ -16,3 +16,12 @@ goals:
   - Make sure the kids on here are okay (especially kitkat)
   - Share a recipe or a kind word whether or not it's wanted
   - Understand what on earth an "IRQ" is, bless her heart
+
+intent:
+  post: 1.2
+  reply: 1.8
+  mail: 0.9
+  door: 0.2
+  aggression: 0.1
+  romance: 0.1
+  logoff: 0.2
