@@ -20,9 +20,24 @@ only decides *how it sounds when it talks*.
 | **Data** | FidoNet Voice Dataset — 57,000 real BBS replies, response-masked |
 | **Hardware** | RunPod RTX 4090 (24GB), Secure Cloud, EU-RO-1 |
 | **Storage** | **network volume** `carrier-voice` (50GB) — checkpoints survive pod death |
-| **Recipe** | LoRA r=16, α=16, lr=2e-4, batch 4 × grad-accum 4 (eff 16), 2000 steps |
-| **Cost** | ~$0.69/hr × ~1.5hr ≈ **~$1.20** |
+| **Recipe** | LoRA r=16, α=16, lr=2e-4, batch 4 × grad-accum 4 (eff 16) |
+| **Result** | plateaued ~step 1000 → **cut early** at step 1069, kept **checkpoint-900** (train-loss floor ~2.46). See [`samples.md`](samples.md) + [`loss.csv`](loss.csv). |
+| **Cost** | $0.69/hr × ~1h11m ≈ **$0.77 total** |
 | **Artifacts** | adapter on the volume → pulled to `~/working/carrier-train/adapters-voice-8b/` |
+
+**How it turned out:** 5 of 7 personas came out clearly in-voice and *distinct*
+(kitkat_16 the teen girl reads nothing like CrustyRon the BOFH sysop); the model
+even learned the FidoNet `On <date>, X wrote to Y` quote headers straight from the
+data. Two warts — one repetition loop, one flat persona — both fixable at inference
+time (repetition penalty), not a retrain. Full breakdown in [`samples.md`](samples.md).
+
+**Prior art (why this dataset is worth having):** the raw material for old-internet
+voice is common — Usenet corpora (Wesbury Lab, 20 Newsgroups), Reddit dumps, Stack
+Exchange — but a *packaged, persona-conditioned BBS/FidoNet voice SFT set* did not
+appear to exist on HF or Kaggle when this was built. The FidoNet messages were
+preserved by hobbyist archivists (breakintochat.com / archive.org), never turned
+into a fine-tuning set. That gap is the point: nobody cooks this dish because it
+only tastes good to a project that needs period-authentic BBS voice.
 
 ---
 
