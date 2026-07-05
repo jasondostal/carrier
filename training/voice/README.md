@@ -137,6 +137,33 @@ and resumes. Nothing before the last 100-step checkpoint is lost.
 
 ---
 
+## Serving the voice model (LM Studio, GGUF)
+
+`serving/build.sh` fuses the LoRA into full-precision Qwen3-8B and produces a
+GGUF LM Studio can serve:
+
+```bash
+serving/build.sh          # merge → GGUF f16 → quantize Q5_K_M (~5.4GB)
+# output: carrier-train/carrier-voice-8b-gguf/carrier-voice-8b-Q5_K_M.gguf
+```
+
+Then in LM Studio: drop the `.gguf` under `~/.lmstudio/models/carrier/carrier-voice-8b/`,
+**load** it, and make sure the **local server is running** (`:1234`). Point carrier at it:
+
+```bash
+go run ./cmd/colony --intent engine --voice-model lmstudio:carrier-voice-8b
+# other host/box? CARRIER_LMSTUDIO_BASE_URL=http://192.168.1.57:1234/v1 go run …
+```
+
+## Engine integration (the model's job in carrier)
+
+carrier uses this model as its **content layer** only (see the engine/voice split
+in `internal/intent` + `internal/voice`): the game engine decides *what* each
+caller does from persona utility weights, and this model writes the *words* in
+the exact prompt shape it was trained on. It also voices in-character brags for
+notable Legend of the Red Dragon events. Run offline with a canned mock voice by
+omitting `--voice-model`.
+
 ## The four traps that cost us money (so you don't repeat them)
 
 1. **Ephemeral disk** — the pod's container disk is wiped on termination. Durable
