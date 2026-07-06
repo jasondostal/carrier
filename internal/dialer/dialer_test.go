@@ -180,12 +180,13 @@ func TestCallerRegistersAndReplies(t *testing.T) {
 		Intent: domain.Intent{Reply: 1.0, Post: 0.0}, // force a reply
 	}
 	c := &Caller{
-		Persona: persona,
-		Voice:   voice.Mock{},
-		Prof:    BuiltinTresBBS(),
-		Pass:    "pw",
-		Echo:    "General",
-		RNG:     rand.New(rand.NewSource(1)),
+		Persona:    persona,
+		Voice:      voice.Mock{},
+		Prof:       BuiltinTresBBS(),
+		Pass:       "pw",
+		Echo:       "General",
+		RNG:        rand.New(rand.NewSource(1)),
+		Chattiness: 1, // always post/reply (don't lurk) so we can assert the reply
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

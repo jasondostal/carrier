@@ -22,10 +22,11 @@ type Caller struct {
 	Persona *domain.Persona
 	Voice   voice.Composer
 	Prof    *Profile
-	Pass    string      // fixed password (same on signup and future logins)
-	Echo    string      // conference to work in (e.g. "General")
-	RNG     *rand.Rand  // per-caller randomness (target choice, post-vs-reply)
-	Log     func(Event) // event sink
+	Pass       string      // fixed password (same on signup and future logins)
+	Echo       string      // conference to work in (e.g. "General")
+	RNG        *rand.Rand  // per-caller randomness (target choice, post-vs-reply)
+	Chattiness float64     // 0..1 chance this call posts/replies vs just lurking
+	Log        func(Event) // event sink
 }
 
 // Event is one thing that happened during a call, for the pool's live feed.
@@ -175,6 +176,17 @@ func (c *Caller) doActivity(ctx context.Context, conn *Conn, out *Outcome) {
 	}
 	out.Read++
 	c.emit("read", c.Echo)
+
+	// Most calls are a lurk: read the board and hang up without posting. Only a
+	// Chattiness fraction actually writes — this is what keeps volume realistic
+	// (a real board saw far more reads than posts).
+	if c.RNG.Float64() >= c.Chattiness {
+		conn.SendLine("0") // exit the reader
+		conn.ReadUntil(ctx, p.ActWait, p.MsgMenu, p.MainMenu)
+		conn.Send(p.MsgMenuToMain)
+		conn.ReadUntil(ctx, p.ActWait, p.MainMenu)
+		return
+	}
 
 	// Choose a message to answer: a random recent one from other callers (not
 	// always the newest), so replies spread across threads instead of stacking.

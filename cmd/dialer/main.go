@@ -30,9 +30,11 @@ func main() {
 	echo := flag.String("echo", "General", "conference to work in")
 	one := flag.String("one", "", "dial exactly one persona by handle and exit (debug; traces the session)")
 	callers := flag.Int("callers", 4, "max concurrent callers (the board's node count is the real cap)")
-	minGap := flag.Duration("min-gap", 3*time.Second, "min wait between a persona's calls")
-	maxGap := flag.Duration("max-gap", 20*time.Second, "max wait between a persona's calls")
-	duration := flag.Duration("duration", 2*time.Minute, "how long to run the pool (0 = until Ctrl-C)")
+	// The two big knobs: HOW FAST (--day) and HOW MUCH (--calls-per-day).
+	day := flag.Duration("day", 10*time.Minute, "HOW FAST: wall-clock for one simulated day (24h = real time, 30s = fast-forward)")
+	callsPerDay := flag.Float64("calls-per-day", 4, "HOW MUCH: avg calls per caller per simulated day (scaled by call-urge)")
+	chattiness := flag.Float64("chattiness", 0.6, "of those calls, the fraction that post/reply vs just lurk (0..1)")
+	duration := flag.Duration("duration", 0, "how long to run the pool in real time (0 = until Ctrl-C)")
 	seed := flag.Int64("seed", 1, "RNG seed")
 	flag.Parse()
 
@@ -64,7 +66,7 @@ func main() {
 			os.Exit(1)
 		}
 		c := &dialer.Caller{Persona: pz, Voice: composer, Prof: prof, Pass: *pass, Echo: *echo,
-			RNG: rand.New(rand.NewSource(*seed)),
+			RNG: rand.New(rand.NewSource(*seed)), Chattiness: 1, // debug: always post
 			Log: func(e dialer.Event) { fmt.Printf("  · %-8s %s %s\n", e.Kind, e.Handle, e.Detail) }}
 		fmt.Printf("dialing %s @ %s ...\n", pz.Handle, *addr)
 		out := c.Dial(ctx, *addr)
@@ -75,11 +77,14 @@ func main() {
 	pool := &dialer.Pool{
 		Addr: *addr, Personas: personas, Voice: composer, Prof: prof,
 		Password: *pass, Echo: *echo, MaxConcurrent: *callers,
-		MinGap: *minGap, MaxGap: *maxGap, Seed: *seed,
-		Log: consoleFeed(),
+		DayLength: *day, CallsPerDay: *callsPerDay, Chattiness: *chattiness,
+		Seed: *seed, Log: consoleFeed(),
 	}
-	fmt.Printf("carrier dialer → %s · %d personas · up to %d concurrent · voice=%s\n\n",
-		*addr, len(personas), *callers, modelLabel(*voiceModel, client.Mock()))
+	// Rough expected volume so you know what you asked for before it runs.
+	postsPerDay := *callsPerDay * *chattiness * float64(len(personas))
+	fmt.Printf("carrier dialer → %s · %d personas · voice=%s\n", *addr, len(personas), modelLabel(*voiceModel, client.Mock()))
+	fmt.Printf("pace: 1 sim-day / %s · %.0f calls·caller⁻¹·day⁻¹ · ~%.0f posts/sim-day board-wide\n\n",
+		day.String(), *callsPerDay, postsPerDay)
 	pool.Run(ctx, *duration)
 	fmt.Println("\n" + pool.Summary())
 }

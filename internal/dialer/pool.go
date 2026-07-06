@@ -22,11 +22,21 @@ type Pool struct {
 	Prof          *Profile
 	Password      string
 	Echo          string
-	MaxConcurrent int           // client-side cap on simultaneous calls
-	MinGap, MaxGap time.Duration // per-persona wait between call attempts
-	BusyBackoff   time.Duration  // base wait before redialing a busy line
-	Seed          int64
-	Log           func(Event)
+	MaxConcurrent int // client-side cap on simultaneous calls
+
+	// Time model — two orthogonal, wide knobs:
+	//   DayLength   = HOW FAST: wall-clock for one simulated day (24h = real time,
+	//                 10m = a day every ten minutes, 30s = fast-forward).
+	//   CallsPerDay = HOW MUCH: average calls per caller per simulated day, scaled
+	//                 by each persona's call-urge (a real heavy user ~a handful/day).
+	//   Chattiness  = of those calls, the fraction that actually post/reply rather
+	//                 than just read and hang up (real callers mostly lurk).
+	DayLength   time.Duration
+	CallsPerDay float64
+	Chattiness  float64
+
+	Seed int64
+	Log  func(Event)
 
 	sem  chan struct{}
 	mu   sync.Mutex
@@ -48,8 +58,14 @@ func (p *Pool) Run(ctx context.Context, duration time.Duration) {
 	if p.MaxConcurrent <= 0 {
 		p.MaxConcurrent = len(p.Personas)
 	}
-	if p.BusyBackoff == 0 {
-		p.BusyBackoff = 3 * time.Second
+	if p.DayLength <= 0 {
+		p.DayLength = 10 * time.Minute
+	}
+	if p.CallsPerDay <= 0 {
+		p.CallsPerDay = 4
+	}
+	if p.Chattiness <= 0 {
+		p.Chattiness = 0.6
 	}
 	p.sem = make(chan struct{}, p.MaxConcurrent)
 
@@ -66,8 +82,8 @@ func (p *Pool) Run(ctx context.Context, duration time.Duration) {
 		go func(idx int, persona *domain.Persona) {
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(p.Seed + int64(idx)*7919))
-			// stagger startups so they don't all dial on tick zero
-			sleep(runCtx, time.Duration(rng.Int63n(int64(p.MaxGap)+1)))
+			// stagger startups across a typical gap so they don't all dial at once
+			sleep(runCtx, time.Duration(rng.Float64()*float64(p.gap(persona, rng))))
 			for runCtx.Err() == nil {
 				p.attempt(runCtx, persona, rng)
 				if !sleep(runCtx, p.gap(persona, rng)) {
@@ -84,7 +100,7 @@ func (p *Pool) Run(ctx context.Context, duration time.Duration) {
 func (p *Pool) attempt(ctx context.Context, persona *domain.Persona, rng *rand.Rand) {
 	c := &Caller{
 		Persona: persona, Voice: p.Voice, Prof: p.Prof,
-		Pass: p.Password, Echo: p.Echo, RNG: rng, Log: p.Log,
+		Pass: p.Password, Echo: p.Echo, RNG: rng, Chattiness: p.Chattiness, Log: p.Log,
 	}
 	const maxRedial = 5
 	for redial := 0; redial <= maxRedial; redial++ {
@@ -100,17 +116,21 @@ func (p *Pool) attempt(ctx context.Context, persona *domain.Persona, rng *rand.R
 		if !out.Busy {
 			return // connected (or hard error) — done with this intent
 		}
-		// Busy: wait a jittered backoff and redial, like a real caller hitting
-		// a busy signal and hitting redial.
-		back := p.BusyBackoff + time.Duration(rng.Int63n(int64(p.BusyBackoff)))
+		// Busy: wait a jittered backoff and redial, like a real caller hitting a
+		// busy signal and hitting redial. Backoff scales with the pace: a short
+		// slice of a simulated day (~1/500th), clamped to something sane.
+		back := time.Duration(float64(p.DayLength) / 500.0)
+		back = clampDur(back, 500*time.Millisecond, 20*time.Second)
+		back += time.Duration(rng.Int63n(int64(back) + 1))
 		if !sleep(ctx, back) {
 			return
 		}
 	}
 }
 
-// gap returns the wait until this persona's next call attempt, shorter for
-// higher call-urge personas, with jitter.
+// gap returns the wait until this persona's next call attempt, derived from the
+// time model: mean gap = DayLength / (CallsPerDay scaled by call-urge), then
+// jittered 0.5×–1.5×. Higher-urge personas dial more often.
 func (p *Pool) gap(persona *domain.Persona, rng *rand.Rand) time.Duration {
 	urge := persona.CallUrge
 	if urge <= 0 {
@@ -119,13 +139,23 @@ func (p *Pool) gap(persona *domain.Persona, rng *rand.Rand) time.Duration {
 	if urge > 1 {
 		urge = 1
 	}
-	// lerp from MaxGap (low urge) toward MinGap (high urge)
-	span := float64(p.MaxGap - p.MinGap)
-	base := float64(p.MaxGap) - span*urge
-	jitter := rng.Float64()*span*0.4 - span*0.2
-	d := time.Duration(base + jitter)
-	if d < p.MinGap {
-		d = p.MinGap
+	// A heavy (urge≈1) caller dials ~1.5× the base rate; a lurker ~0.5×.
+	calls := p.CallsPerDay * (0.5 + urge)
+	if calls < 0.1 {
+		calls = 0.1
+	}
+	mean := float64(p.DayLength) / calls
+	d := time.Duration(mean * (0.5 + rng.Float64())) // 0.5×–1.5× jitter
+	return clampDur(d, 300*time.Millisecond, 24*time.Hour)
+}
+
+// clampDur bounds d to [lo, hi].
+func clampDur(d, lo, hi time.Duration) time.Duration {
+	if d < lo {
+		return lo
+	}
+	if d > hi {
+		return hi
 	}
 	return d
 }
