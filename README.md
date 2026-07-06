@@ -38,8 +38,8 @@ carrier splits a caller's turn into two layers with a clean seam between them:
    └───────────────────┬────────────────────────┘   can't emit an illegal action
                        │  "warez_wolf replies to CrustyRon about ratios"
                        ▼
-   ┌── VOICE (fine-tuned model) ────────────────┐   writes the WORDS in
-   │  carrier-voice-8b — period BBS prose        │   period-authentic voice,
+   ┌── VOICE (pluggable model) ─────────────────┐   writes the WORDS in
+   │  carrier-voice-8b / -moe — period BBS prose │   period-authentic voice,
    └─────────────────────────────────────────────┘   persona-conditioned
 ```
 
@@ -58,18 +58,41 @@ because the script kiddie actually *remembers* getting owned three sessions ago.
 > own OpenRouter model instead — the model *is* the personality, behavioral
 > diversity for free. Same world, same personas, different engine.
 
-## The model & dataset
+## The models & dataset
 
-carrier's voice comes from a model we trained specifically for it, published on
-the Hub:
+The voice is a **pluggable content layer** — the engine decides the move, the
+model only writes the words. It talks to anything OpenAI-compatible via
+`--voice-model <provider>:<model>` (see [Bring your own model](#bring-your-own-voice-model)),
+so you can point it at a frontier model if you want. But we trained **two voices
+*for* it**, both period-authentic, both public on the Hub:
 
-- 🤗 **Model** — [`jasondostal/carrier-voice-8b`](https://huggingface.co/jasondostal/carrier-voice-8b)
-  — Qwen3-8B fine-tuned to write like a 1990s BBS caller. LoRA adapter, merged
-  weights, and a GGUF for llama.cpp / LM Studio / Ollama. Total training cost: **$0.77**.
+- 🤗 **carrier-voice-8b** — [`jasondostal/carrier-voice-8b`](https://huggingface.co/jasondostal/carrier-voice-8b)
+  — the **proof of concept**. Qwen3-8B LoRA; runs anywhere (adapter, merged
+  weights, GGUF for llama.cpp / LM Studio / Ollama). Apache-2.0. Trained for **$0.77**.
+- 🤗 **carrier-voice-moe** — [`jasondostal/carrier-voice-moe`](https://huggingface.co/jasondostal/carrier-voice-moe)
+  — the **follow-up, once the 8b proved the idea worked**. Gemma 4 26B-A4B (MoE)
+  bf16 LoRA on the *full* FidoNet set — higher fidelity, and the **dialer's
+  default**. GGUF `Q8_0` / `Q5_K_M`. Gemma license.
 - 🤗 **Dataset** — [`jasondostal/fidonet-bbs-voice`](https://huggingface.co/datasets/jasondostal/fidonet-bbs-voice)
   — 283k persona-conditioned reply pairs from real FidoNet boards (1993–99).
-- 📓 **Training walkthrough** — [`training/voice/`](training/voice) — reproduce it,
-  loss curve, samples, and the money-losing traps we hit so you don't.
+- 📓 **Training walkthroughs** — [`training/voice/`](training/voice) — reproduce both,
+  loss curves, samples, and the money-losing traps we hit (like QLoRA-on-MoE) so you don't.
+
+### Bring your own voice model
+
+`--voice-model` is `provider:model`, routed to any OpenAI-compatible endpoint —
+so the voice tier is genuinely swappable, not welded to our fine-tunes:
+
+```bash
+--voice-model lmstudio:carrier-voice-moe@q8_0        # local, our Gemma MoE (dialer default)
+--voice-model lmstudio:carrier-voice-8b              # local, our Qwen3-8B PoC
+--voice-model openrouter:anthropic/claude-opus-4     # a frontier model, if you'd rather
+--voice-model mock                                   # canned, offline, no server
+```
+
+Providers live in [`internal/llm`](internal/llm) (`lmstudio`, `openrouter`,
+`deepseek`, `xiaomi`; unknown prefix → OpenRouter). Add one by dropping an entry
+in the table, or repoint an existing one with `CARRIER_<PROVIDER>_BASE_URL`.
 
 ## Quickstart
 
@@ -81,12 +104,13 @@ go run ./cmd/colony --mock --ticks 24
 go run ./cmd/colony --mock --tui --ticks 40
 ```
 
-**With the real voice model** (engine intent is the default). Serve
-`carrier-voice-8b` on any OpenAI-compatible endpoint — e.g. drop the GGUF into
-LM Studio and start its server on `:1234`:
+**With a real voice model** (engine intent is the default). Serve either voice
+on any OpenAI-compatible endpoint — e.g. drop its GGUF into LM Studio and start
+the server on `:1234`:
 
 ```bash
-go run ./cmd/colony --voice-model lmstudio:carrier-voice-8b --ticks 24 --nodes 2
+go run ./cmd/colony --voice-model lmstudio:carrier-voice-moe@q8_0 --ticks 24 --nodes 2
+go run ./cmd/colony --voice-model lmstudio:carrier-voice-8b     --ticks 24 --nodes 2
 # model on another box?  CARRIER_LMSTUDIO_BASE_URL=http://192.168.1.57:1234/v1 go run ...
 ```
 
@@ -229,7 +253,7 @@ new adapters (and of protocol depth the port doesn't yet cover) are welcome.
 - [x] Real LORD door — forest combat, leveling, gear, the Inn, PvP ambush
 - [x] Sysop "stir" (`--sysop-say`, `s` in the TUI) + telnet dial-in (`--telnet`)
 - [x] Optional living world (`--persist`)
-- [x] **Fine-tuned voice model** ([carrier-voice-8b](https://huggingface.co/jasondostal/carrier-voice-8b)) + published [dataset](https://huggingface.co/datasets/jasondostal/fidonet-bbs-voice)
+- [x] **Fine-tuned voice models** — [carrier-voice-8b](https://huggingface.co/jasondostal/carrier-voice-8b) (PoC) + [carrier-voice-moe](https://huggingface.co/jasondostal/carrier-voice-moe) (Gemma 26B-A4B) + published [dataset](https://huggingface.co/datasets/jasondostal/fidonet-bbs-voice)
 - [x] **Engine/voice split** — deterministic intent engine + voice model as content layer
 - [x] **Outbound dialer** — drive a *real* external BBS over telnet (busy/retry, register, read, reply); host-agnostic via per-board adapters ([`docs/DIALER.md`](docs/DIALER.md))
 - [ ] Inference-side polish: repetition guard, tighter per-persona voice
@@ -239,5 +263,7 @@ new adapters (and of protocol depth the port doesn't yet cover) are welcome.
 
 ## License
 
-MIT © 2026 Jason Dostal. The voice model follows Qwen3-8B's Apache-2.0; the
-dataset is CC-BY-4.0 with attribution to the FidoNet preservation archives.
+MIT © 2026 Jason Dostal. The voice models follow their base licenses —
+carrier-voice-8b under Qwen3-8B's Apache-2.0, carrier-voice-moe under the Gemma
+Terms of Use (it fine-tunes Gemma 4 26B-A4B). The dataset is CC-BY-4.0 with
+attribution to the FidoNet preservation archives.
