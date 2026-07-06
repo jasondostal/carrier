@@ -150,6 +150,78 @@ The **node limit is the throttle**: a population of 20 callers but only *N* phon
 lines, so the busy board, the who's-online-together, and the contention are all
 emergent — and in `--intent llm` mode it's what bounds cost.
 
+## Driving a real BBS — the dialer (outbound adapters)
+
+`colony` simulates callers *inside* carrier's own world. The **dialer**
+(`cmd/dialer`) points the same cast *outward*: it opens real telnet sessions
+against an external board and generates live traffic — a mock caller pool for
+load- and behavior-testing any BBS.
+
+```bash
+go run ./cmd/dialer --host localhost:2323 --profile tresbbs \
+    --voice-model lmstudio:carrier-voice-moe@q8_0 --callers 8 --duration 2m
+```
+
+A pool of persona callers dials in on its own cadence, **redials when the board
+is busy**, **registers or logs in over the wire**, reads a conference, and
+**replies (threaded) or posts** in the fine-tuned voice — weighted by each
+persona's `intent`. See [`docs/DIALER.md`](docs/DIALER.md) for the full flag set.
+
+### Writing an adapter for another BBS
+
+The dialer is hexagonal, and if you've done ports & adapters in .NET the mapping
+is one-to-one. **The engine never speaks a board's dialect** — it speaks domain
+verbs (dial, register, read, reply), and a per-board **adapter** translates those
+to and from the wire.
+
+| Hexagonal / .NET concept | In the dialer | File |
+|---|---|---|
+| **Client** (`HttpClient`) | `Conn` — telnet connect, IAC negotiation, `ReadUntil(regex)` | `transport.go` |
+| **Port** (`IBbsAdapter`) | `Profile` — the contract of prompts + keys + flows the core needs | `profile.go` |
+| **Adapter** (`TresBbsAdapter : IBbsAdapter`) | `BuiltinTresBBS()` — a `Profile` populated for one board | `profile.go` |
+| **ACL** (anti-corruption layer) | the `Profile`'s regexes + `RegStep` mappings — foreign prompt dialect → domain verbs, so board quirks never leak inward | `profile.go` |
+| **DTO** | `msgRef`, `RegStep`, `Outcome` — typed shapes parsed out of raw screen bytes | `session.go` |
+| **Core / domain** | `Caller` (one call) + `Pool` (the population, cadence, busy-retry) — board-agnostic | `session.go`, `pool.go` |
+
+**To onboard a new board, you write one adapter — a `Profile` — and register it.**
+No engine changes:
+
+```go
+// internal/dialer/renegade.go
+package dialer
+
+import "regexp"
+
+func init() { Register("renegade", BuiltinRenegade) } // wire it into the registry
+
+// BuiltinRenegade is the ACL for a Renegade board: it maps that board's prompt
+// dialect onto the same domain verbs the core drives tresbbs with.
+func BuiltinRenegade() *Profile {
+	re := regexp.MustCompile
+	p := BuiltinTresBBS()          // start from a close cousin, then override
+	p.Name = "renegade"
+	p.UserPrompt = re(`Enter your handle:`)
+	p.PassPrompt = re(`Password:`)
+	p.MainMenu   = re(`Main Menu.*Command\?`)
+	p.ToMsgArea  = "M"             // this board's key to reach message bases
+	p.PostKey    = "P"
+	// …map the rest of the prompts/keys this board uses…
+	return p
+}
+```
+
+```bash
+go run ./cmd/dialer --profile renegade --host my.board:23
+```
+
+**The port contract** (what the core assumes any adapter can express): a login
+prompt, an optional new-user signup script (`[]RegStep`), a main menu, and a
+message area supporting read / post / threaded-reply. Boards that fit that shape
+need only a `Profile`. A board with a radically different flow is the honest
+boundary of the current port — it may need the driver (`session.go`) extended,
+at which point the *port* grows, not the individual adapters. Contributions of
+new adapters (and of protocol depth the port doesn't yet cover) are welcome.
+
 ## Roadmap
 
 - [x] Simulation core + file memory + console adapter
@@ -159,6 +231,7 @@ emergent — and in `--intent llm` mode it's what bounds cost.
 - [x] Optional living world (`--persist`)
 - [x] **Fine-tuned voice model** ([carrier-voice-8b](https://huggingface.co/jasondostal/carrier-voice-8b)) + published [dataset](https://huggingface.co/datasets/jasondostal/fidonet-bbs-voice)
 - [x] **Engine/voice split** — deterministic intent engine + voice model as content layer
+- [x] **Outbound dialer** — drive a *real* external BBS over telnet (busy/retry, register, read, reply); host-agnostic via per-board adapters ([`docs/DIALER.md`](docs/DIALER.md))
 - [ ] Inference-side polish: repetition guard, tighter per-persona voice
 - [ ] Door flavor beyond LORD; in-voice Daily News editorializing
 - [ ] TriBBS "soul" layer: menu/template engine + user records + file areas + ratios
