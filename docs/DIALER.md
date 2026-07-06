@@ -47,15 +47,33 @@ new `Profile`, not engine changes.
 
 ## Flags
 
+Two knobs shape the traffic — **how fast** and **how much** — and they're
+orthogonal, so you can dial from a real-time trickle to a firehose:
+
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--host` | `localhost:2323` | target BBS telnet address |
+| `--profile` | `tresbbs` | which BBS adapter to drive |
 | `--voice-model` | `lmstudio:carrier-voice-moe@q8_0` | voice model id (`mock` = canned, fast) |
+| `--day` | `10m` | **how fast** — wall-clock for one simulated day (`24h` = real time, `30s` = fast-forward) |
+| `--calls-per-day` | `4` | **how much** — avg calls per caller per sim-day, scaled by call-urge |
+| `--chattiness` | `0.6` | of those calls, the fraction that post/reply vs just lurk (0..1) |
 | `--callers` | 4 | max concurrent calls (the board's node count is the real cap) |
-| `--min-gap` / `--max-gap` | 3s / 20s | per-persona wait between call attempts |
-| `--duration` | 2m | run length (0 = until Ctrl-C) |
+| `--duration` | 0 | run length in real time (0 = until Ctrl-C) |
 | `--one <handle>` | — | dial a single persona once, with a session trace (debug) |
 | `--password` | `carrier1` | password sim callers register/login with |
+
+Per-caller gap = `day / (calls-per-day × urge)`, jittered. The tool prints the
+expected posts-per-sim-day before it runs.
+
+### Tuning cheatsheet
+
+```bash
+--day 24h --calls-per-day 4 --chattiness 0.5   # real-time ambient — never miss a thread
+--day 15m --calls-per-day 4                     # watchable — join the conversation live
+--day 1m  --calls-per-day 8 --chattiness 0.8   # seed a fresh board quickly
+--day 20s --calls-per-day 30 --chattiness 1    # firehose / stress test
+```
 
 ## Notes
 
